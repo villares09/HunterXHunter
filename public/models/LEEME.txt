@@ -1,0 +1,13 @@
+Dejá acá tu personaje rigueado como `character.glb`.
+
+Fuentes libres recomendadas:
+- Quaternius (CC0): https://quaternius.com  /  https://poly.pizza  (buscá "Adventurer" o "Animated Base Character")
+- Mixamo (gratis, auto-rig + animaciones): https://www.mixamo.com
+
+Flujo Mixamo:
+1. Elegí/subí un personaje en T-pose.
+2. Bajá las animaciones que quieras (Idle, Walk, Run, Jump, Sword Slash, Hit Reaction...) en formato FBX o glTF.
+3. Combinálas en un solo .glb (Blender, o el visor de three.js / gltf-transform).
+4. Renombralo `character.glb` y dejalo en esta carpeta.
+
+Después seguí los pasos del README → "Modelo real" para activar las animaciones con EcctrlAnimation.
