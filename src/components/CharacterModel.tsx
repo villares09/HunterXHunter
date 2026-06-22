@@ -46,6 +46,10 @@ function CharacterModelInner({ modelId }: { modelId: string }) {
   const cur = useRef<string>("");
   const lastSwingAt = useRef(0);
 
+  // hit-reaction del player: poleamos hp como el oso pollea en.hp
+  const prevHp = useRef(0);
+  const hurtUntil = useRef(0);
+
   // Nombre canónico del clip de salto (para distinguirlo en play).
   const jumpName = def.anim.jump ?? def.anim.idle;
 
@@ -106,7 +110,29 @@ function CharacterModelInner({ modelId }: { modelId: string }) {
     const g = group.current;
     if (!g) return;
 
-    // --- ATAQUE: nuestro sistema, tiene prioridad sobre todo ---
+    const S = useRPG.getState();
+
+    // --- MUERTE: se cae y se clava en el piso. Prioridad máxima. ---
+    if (S.dead) {
+      prevHp.current = S.hp;
+      if (def.anim.down) play(def.anim.down, true, 0.15);
+      return;
+    }
+
+    // --- HIT-REACTION: si hp bajó respecto al frame anterior, comimos un golpe. ---
+    if (def.anim.hurt && S.hp < prevHp.current) {
+      const d = actions[def.anim.hurt]?.getClip().duration ?? 0.5;
+      hurtUntil.current = performance.now() + d * 1000;
+      cur.current = ""; // re-dispara la anim aunque ya estuviéramos reaccionando (multi-golpe)
+    }
+    prevHp.current = S.hp;
+
+    if (def.anim.hurt && performance.now() < hurtUntil.current) {
+      play(def.anim.hurt, true, 0.08);
+      return; // tapa ataque y locomoción mientras dura la reacción
+    }
+
+    // --- ATAQUE: nuestro sistema, tiene prioridad sobre locomoción ---
     if (attack.active && attack.move) {
       const name = attack.move.clip;
       const act = actions[name];

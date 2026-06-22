@@ -24,7 +24,7 @@ export function Game() {
   return (
     <Canvas shadows camera={{ position: [0, 6, 14], fov: 50 }}>
       <color attach="background" args={["#bcdcec"]} />
-      <fog attach="fog" args={["#bcdcec", 45, 110]} />
+      <fogExp2 attach="fog" args={["#bcdcec", 0.0025]} />
       <Suspense fallback={null}>
         <KeyboardControls map={map}>
           <Physics timeStep="vary">

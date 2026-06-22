@@ -4,6 +4,8 @@ export type AnimMap = {
   run: string;
   jump?: string;
   attack?: string;
+  hurt?: string; // reacción a golpe (Receive Punch To The Face)
+  down?: string; // caída / muerte (Stunned to floor)
 };
 
 export type ModelDef = {
@@ -22,6 +24,8 @@ const MIXAMO_ANIM: AnimMap = {
   run: "Running",
   jump: "Jumping + standing",
   attack: "PunchingRight",
+  hurt: "Receive Punch To The Face",
+  down: "Stunned to floor",
 };
 
 export const MODELS: ModelDef[] = [

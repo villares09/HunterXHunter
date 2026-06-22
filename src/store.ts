@@ -19,10 +19,13 @@ export type Character = {
 export type CharInit = { maxHp: number; maxAura: number; baseDmg: number; passiveDmg: number };
 
 const AURA_REGEN = 14;
+const DEATH_ANIM_TIME = 2.2; // "Stunned to floor" dura 2.17s -> recién ahí mostramos el modal
 
 type State = {
   phase: "select" | "onboarding" | "playing";
   dead: boolean;
+  deathModal: boolean; // NUEVO: gatea el modal, se prende al terminar la anim de muerte
+  deathT: number;      // NUEVO: countdown de la anim de muerte
   invuln: number;
   character: Character | null;
 
@@ -57,6 +60,8 @@ let _fid = 1;
 export const useRPG = create<State>((set, get) => ({
   phase: hasCharacters() ? "select" : "onboarding",
   dead: false,
+  deathModal: false,
+  deathT: 0,
   invuln: 0,
   character: null,
 
@@ -76,7 +81,7 @@ export const useRPG = create<State>((set, get) => ({
       maxHp: init.maxHp, hp: init.maxHp,
       maxAura: init.maxAura, aura: init.maxAura,
       baseDmg: init.baseDmg, passiveDmg: init.passiveDmg,
-      kills: 0, combo: 0, dead: false, invuln: 1.5,
+      kills: 0, combo: 0, dead: false, deathModal: false, deathT: 0, invuln: 1.5,
     }),
   setPhase: (p) => set({ phase: p }),
 
@@ -85,7 +90,8 @@ export const useRPG = create<State>((set, get) => ({
     const s = get();
     if (s.dead || s.invuln > 0) return;
     const hp = Math.max(0, s.hp - n);
-    set({ hp, dead: hp <= 0 });
+    const dead = hp <= 0;
+    set({ hp, dead, deathT: dead ? DEATH_ANIM_TIME : s.deathT });
     get().addFloater({ pos, text: `-${n}`, kind: "hurt" });
     get().shake();
   },
@@ -97,13 +103,21 @@ export const useRPG = create<State>((set, get) => ({
   ready: (id) => (get().cooldowns[id] ?? 0) <= 0,
   setCooldown: (id, cd) => set((s) => ({ cooldowns: { ...s.cooldowns, [id]: cd } })),
   buff: (mult, dur) => set({ dmgMult: mult, buffT: dur }),
-  revive: () => set({ hp: get().maxHp, dead: false, invuln: 2 }),
+  revive: () => set({ hp: get().maxHp, dead: false, deathModal: false, deathT: 0, invuln: 2 }),
 
   tick: (dt) => {
     const s = get();
     const next: Partial<State> = {};
     next.hitStop = Math.max(0, s.hitStop - dt);
     if (s.invuln > 0) next.invuln = Math.max(0, s.invuln - dt);
+
+    // muerte: dejamos correr la anim de caída y recién al terminar prendemos el modal
+    if (s.dead && s.deathT > 0) {
+      const dt2 = Math.max(0, s.deathT - dt);
+      next.deathT = dt2;
+      if (dt2 === 0) next.deathModal = true;
+    }
+
     let combo = s.combo, comboT = s.comboT;
     if (comboT > 0) { comboT = Math.max(0, comboT - dt); if (comboT === 0) combo = 0; }
     next.combo = combo; next.comboT = comboT;

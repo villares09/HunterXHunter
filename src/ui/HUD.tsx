@@ -41,10 +41,10 @@ function SkillBar() {
 }
 
 function DeathOverlay() {
-  const dead = useRPG((s) => s.dead);
+  const deathModal = useRPG((s) => s.deathModal);
   const revive = useRPG((s) => s.revive);
   const toSelect = useRPG((s) => s.setPhase);
-  if (!dead) return null;
+  if (!deathModal) return null;
   return (
     <div className="death">
       <div className="death-box">

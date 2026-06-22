@@ -1,0 +1,139 @@
+import { useGLTF, useAnimations } from "@react-three/drei";
+import { useFrame } from "@react-three/fiber";
+import { useLayoutEffect, useMemo, useRef } from "react";
+import type { MutableRefObject } from "react";
+import * as THREE from "three";
+import { SkeletonUtils } from "three-stdlib";
+import { registry } from "../registry";
+import { getEnemy } from "../data/Enemies";
+
+export type EnemyAnimRef = MutableRefObject<{ moving: boolean; attackAt: number }>;
+
+export function EnemyModel({
+  id,
+  anim,
+  enemyId = "oso",
+}: {
+  id: number;
+  anim: EnemyAnimRef;
+  enemyId?: string;
+}) {
+  const def = useMemo(() => getEnemy(enemyId), [enemyId]);
+  const { scene, animations } = useGLTF(def.url);
+  const model = useMemo(() => SkeletonUtils.clone(scene), [scene]);
+
+  // mismo limpiado que CharacterModel: dropea junk, saca prefijo, solo .quaternion
+  const clips = useMemo(() => {
+    const prefix = (def.id + "_").toLowerCase();
+    const out: THREE.AnimationClip[] = [];
+    for (const c of animations) {
+      if (/^action$/i.test(c.name) || /^mixamo\.com/i.test(c.name)) continue;
+      const clip = c.clone();
+      let n = clip.name;
+      if (n.toLowerCase().startsWith(prefix)) n = n.slice(prefix.length);
+      clip.name = n.trim();
+      clip.tracks = clip.tracks.filter((t) => t.name.endsWith(".quaternion"));
+      out.push(clip);
+    }
+    return out;
+  }, [animations, def]);
+
+  const group = useRef<THREE.Group>(null);
+  const { actions } = useAnimations(clips, group);
+  const cur = useRef<string>("");
+
+  const prevHp = useRef<number>(def.hp);
+  const lastAttack = useRef<number>(0);
+  const hitUntil = useRef<number>(0);
+  const attackUntil = useRef<number>(0);
+
+  useLayoutEffect(() => {
+    model.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh) { m.castShadow = true; m.frustumCulled = false; }
+    });
+    model.frustumCulled = false;
+    const g = group.current!;
+    g.rotation.y = def.faceFlip ? Math.PI : 0;
+    const box = new THREE.Box3().setFromObject(model);
+    const size = box.getSize(new THREE.Vector3());
+    const s = def.targetHeight / (size.y || 1);
+    g.scale.setScalar(s);
+    g.position.y = def.feetY - box.min.y * s;
+    cur.current = "";
+  }, [model, def]);
+
+  // play() idéntico a CharacterModel: una action pura, corta el resto.
+  const play = (clip: string, once = false, fade = 0.12, speed = 1) => {
+    if (!clip || cur.current === clip) return;
+    const next = actions[clip];
+    if (!next) {
+      console.warn("[enemy-anim] clip NO encontrado:", clip, "| hay:", Object.keys(actions));
+      return;
+    }
+    for (const k in actions) {
+      const a = actions[k];
+      if (a && a !== next) a.fadeOut(fade);
+    }
+    next.reset();
+    next.setEffectiveTimeScale(speed);
+    next.setEffectiveWeight(1);
+    next.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, once ? 1 : Infinity);
+    next.clampWhenFinished = once;
+    next.fadeIn(fade).play();
+    cur.current = clip;
+  };
+
+  const A = def.anim;
+
+  useFrame(() => {
+    if (!group.current) return;
+    const en = registry.enemies.get(id);
+    if (!en) return;
+    const now = performance.now();
+
+    // 1) MUERTE — prioridad máxima, se clava en el último frame.
+    if (!en.alive) {
+      prevHp.current = en.hp;
+      hitUntil.current = 0;
+      attackUntil.current = 0;
+      lastAttack.current = anim.current.attackAt; // que no dispare attack al revivir
+      play(A.death, true, 0.12);
+      return;
+    }
+
+    // golpe = caída de hp (registry no-reactivo, lo polleamos)
+    const tookHit = en.hp < prevHp.current;
+    prevHp.current = en.hp;
+    if (tookHit) {
+      const d = actions[A.hit]?.getClip().duration ?? 0.4;
+      hitUntil.current = now + d * 1000;
+    }
+
+    // 2) HIT-REACTION
+    if (now < hitUntil.current) {
+      play(A.hit, true, 0.06);
+      return;
+    }
+
+    // 3) ATAQUE — lo dispara el controller bumpeando anim.current.attackAt
+    if (anim.current.attackAt && anim.current.attackAt !== lastAttack.current) {
+      lastAttack.current = anim.current.attackAt;
+      const d = actions[A.attack]?.getClip().duration ?? 0.6;
+      attackUntil.current = now + d * 1000;
+    }
+    if (now < attackUntil.current) {
+      play(A.attack, true, 0.06);
+      return;
+    }
+
+    // 4) LOCOMOCIÓN
+    play(anim.current.moving ? A.walk : A.idle, false, 0.15);
+  });
+
+  return (
+    <group ref={group}>
+      <primitive object={model} />
+    </group>
+  );
+}
