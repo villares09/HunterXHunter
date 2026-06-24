@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { registry } from "../registry";
 
-const RANGE = 45; // unidades de mundo que abarca el radio del minimapa
+const RANGE = 45;
 const _pp = new THREE.Vector3();
 const _ep = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
@@ -27,7 +27,6 @@ export function Minimap() {
       raf = requestAnimationFrame(draw);
       ctx.clearRect(0, 0, size, size);
 
-      // anillos de referencia
       ctx.strokeStyle = "rgba(86,194,255,0.18)";
       ctx.lineWidth = 1;
       [0.5, 1].forEach((f) => {
@@ -40,17 +39,15 @@ export function Minimap() {
       if (!player) return;
       player.getWorldPosition(_pp);
 
-      // dirección de mirada del jugador (para la flecha)
-      player.getWorldDirection(_fwd); // -Z local en mundo
-      const yaw = Math.atan2(_fwd.x, _fwd.z);
+      player.getWorldDirection(_fwd); // dirección de mirada (−Z local) en mundo
+      // ángulo en el plano del minimapa (X→derecha, Z→abajo)
+      const ang = Math.atan2(_fwd.z, _fwd.x);
 
-      // objetivos (enemigos vivos) en ROJO
       registry.enemies.forEach((en) => {
         if (!en.alive) return;
         en.obj.getWorldPosition(_ep);
         let dx = (_ep.x - _pp.x) * scale;
         let dz = (_ep.z - _pp.z) * scale;
-        // recortar al borde del círculo si está fuera de rango
         const d = Math.hypot(dx, dz);
         if (d > cx - 5) {
           dx = (dx / d) * (cx - 5);
@@ -67,10 +64,10 @@ export function Minimap() {
         ctx.shadowBlur = 0;
       });
 
-      // jugador: triángulo dorado apuntando a su dirección
+      // jugador: triángulo dorado apuntando a su dirección real
       ctx.save();
       ctx.translate(cx, cy);
-      ctx.rotate(-yaw);
+      ctx.rotate(ang + Math.PI / 2); // el triángulo nace apuntando arriba; lo giro a la mirada
       ctx.beginPath();
       ctx.moveTo(0, -7);
       ctx.lineTo(5, 6);

@@ -5,7 +5,7 @@ import type { MutableRefObject } from "react";
 import * as THREE from "three";
 import { SkeletonUtils } from "three-stdlib";
 import { registry } from "../registry";
-import { getEnemy } from "../data/Enemies";
+import { getEnemy } from "../data/enemies";
 
 export type EnemyAnimRef = MutableRefObject<{ moving: boolean; attackAt: number }>;
 

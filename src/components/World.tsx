@@ -5,38 +5,73 @@ import * as THREE from "three";
 import { Prop } from "./Prop";
 import { Foliage } from "./Foliage";
 import { Ocean } from "./Ocean";
-import { Mountains } from "./Mountains";
+import { Terrain } from "./Terrain";
 import {
-  isLand, coastAt, coastPolygonInset, islandCenter,
-  buildLandGeometry, buildCliffGeometry, OCEAN_Y,
-} from "../data/island";
+  isLand, coastAt, coastPolygonInset, OCEAN_Y,
+ } from "../data/island";
+import { PlacedProps } from "./PlacedProps";
 
 type Inst = { id: string; pos: [number, number, number]; rot?: number; scale?: number };
 
-// ===== zonas del pueblo (cerca del spawn, lado cabeza) =====
-const PLAZA = { x: 8, z: 12, r: 11 };
-const LAGOON = { x: 120, z: 18, r: 18 }; // depresión del altiplano
+/* =========================================================================
+   ZONAS (coords de mundo). +X = ESTE (derecha del mapa), +Z = SUR (abajo).
+   Moveлas a gusto, son las perillas de tuning del layout.
+   RIDGE debe coincidir con los picos de Mountains.tsx.
+   ========================================================================= */
+const RIDGE: { x: number; z: number; r: number }[] = [
+  { x: -95, z: -8, r: 48 },
+  { x: -135, z: 16, r: 40 },
+  { x: -118, z: -38, r: 38 },
+  { x: -60, z: -28, r: 36 },
+  { x: -58, z: 22, r: 34 },
+  { x: -34, z: -4, r: 28 },
+];
+
+const PLAZA = { x: 18, z: -8, r: 11 };
+const PANTANO = { x: 112, z: 40, r: 26 };          // Gran Pantano (SE)
+const CASCADA_POOL = { x: -6, z: 2, r: 6 };        // pileta al pie de la cascada
+const MITO: Inst = { id: "casaPersonaje", pos: [10, 0, -40], rot: Math.PI, scale: 1.9 }; // Casa de Gon/Mito
 
 const VILLAGE: Inst[] = [
-  { id: "casaNpc", pos: [-18, 0, -6], rot: 0.5, scale: 1.6 },
-  { id: "casaNpc", pos: [26, 0, -14], rot: -1.2, scale: 1.5 },
-  { id: "casaNpc", pos: [42, 0, 8], rot: 2.2, scale: 1.6 },
-  { id: "casaNpc", pos: [-10, 0, 30], rot: -0.4, scale: 1.5 },
-  { id: "casaNpc", pos: [22, 0, 32], rot: 1.0, scale: 1.6 },
-  { id: "casaNpc", pos: [-32, 0, 16], rot: 0.8, scale: 1.5 },
+  { id: "casaNpc", pos: [40, 0, -30], rot: -0.6, scale: 1.6 },
+  { id: "casaNpc", pos: [56, 0, -10], rot: 1.2, scale: 1.5 },
+  { id: "casaNpc", pos: [30, 0, 6], rot: 2.4, scale: 1.6 },
+  { id: "casaNpc", pos: [48, 0, -44], rot: 0.4, scale: 1.5 },
+  { id: "casaNpc", pos: [-2, 0, -24], rot: -1.1, scale: 1.5 },
+  { id: "casaNpc", pos: [64, 0, 16], rot: 0.8, scale: 1.6 },
 ];
-const MITO: Inst = { id: "casaPersonaje", pos: [6, 0, -2], rot: 0.2, scale: 1.9 };
+const PORT_HOUSES: Inst[] = [
+  { id: "casaNpc", pos: [112, 0, -16], rot: 1.0, scale: 1.5 },
+  { id: "casaNpc", pos: [140, 0, -12], rot: -0.8, scale: 1.5 },
+  { id: "casaNpc", pos: [126, 0, -8], rot: 2.0, scale: 1.6 },
+  { id: "casaNpc", pos: [148, 0, -20], rot: 0.3, scale: 1.5 },
+];
+
+// Sendero del Encuentro con Kite: de la cascada al puerto
+const PATH: [number, number][] = [
+  [-6, 2], [16, -2], [50, -6], [88, -14], [118, -22], [130, -28],
+];
+const PATH_W = 5;
+
+function distToSeg(px: number, pz: number, ax: number, az: number, bx: number, bz: number) {
+  const dx = bx - ax, dz = bz - az;
+  const l2 = dx * dx + dz * dz || 1;
+  let t = ((px - ax) * dx + (pz - az) * dz) / l2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (ax + t * dx), pz - (az + t * dz));
+}
+function nearPath(x: number, z: number, pad = 1) {
+  for (let i = 0; i < PATH.length - 1; i++) {
+    if (distToSeg(x, z, PATH[i][0], PATH[i][1], PATH[i + 1][0], PATH[i + 1][1]) < PATH_W + pad) return true;
+  }
+  return false;
+}
 
 export function World() {
   const grass = useTexture("/assets/pasto.png");
   grass.wrapS = grass.wrapT = THREE.RepeatWrapping;
   grass.anisotropy = 16;
 
-  const grassGeo = useMemo(() => buildLandGeometry(0.93, 0.05), []);
-  const beachGeo = useMemo(() => buildLandGeometry(1.0, 0.0), []);
-  const cliffGeo = useMemo(() => buildCliffGeometry(), []);
-
-  // muros invisibles siguiendo la costa
   const walls = useMemo(() => {
     const pts = coastPolygonInset(0.97);
     return pts.map((a, i) => {
@@ -46,114 +81,106 @@ export function World() {
     });
   }, []);
 
-  // rocas hundidas a lo largo de la costa
-  const cliffs = useMemo<Inst[]>(() => {
-    const arr: Inst[] = [];
-    const N = 26;
-    for (let i = 0; i < N; i++) {
-      const p = coastAt(i / N + 0.01, 0.99);
-      arr.push({ id: "roca", pos: [p.x, -0.8, p.y], rot: Math.random() * 6.28, scale: 2.4 + Math.random() * 2.2 });
+  // segmentos del sendero (cajas finas marrones, sólo visual)
+  const pathSegs = useMemo(() => {
+    const arr: { mx: number; mz: number; len: number; rot: number }[] = [];
+    for (let i = 0; i < PATH.length - 1; i++) {
+      const [ax, az] = PATH[i], [bx, bz] = PATH[i + 1];
+      const dx = bx - ax, dz = bz - az;
+      arr.push({ mx: (ax + bx) / 2, mz: (az + bz) / 2, len: Math.hypot(dx, dz) + PATH_W, rot: -Math.atan2(dz, dx) });
     }
     return arr;
   }, []);
 
-  // bosque del altiplano (+X), esquivando laguna
+  // rocas de costa (Acantilados Rocosos Oeste + anillo), a nivel del agua
+  const cliffs = useMemo<Inst[]>(() => {
+    const arr: Inst[] = [];
+    const N = 22;
+    for (let i = 0; i < N; i++) {
+      const p = coastAt(i / N + 0.01, 0.99);
+      arr.push({ id: "roca", pos: [p.x, OCEAN_Y + 0.2, p.y], rot: Math.random() * 6.28, scale: 2.2 + Math.random() * 2.0 });
+    }
+    // cluster denso en el oeste (Acantilados Rocosos Oeste)
+    for (let i = 0; i < 6; i++) {
+      const p = coastAt(0.9 + i * 0.018, 1.0);
+      arr.push({ id: "roca", pos: [p.x - 4, OCEAN_Y + 0.2, p.y], rot: Math.random() * 6.28, scale: 3 + Math.random() * 2.5 });
+    }
+    return arr;
+  }, []);
+
+  const blocked = useMemo(() => {
+    const circ: { x: number; z: number; r: number }[] = [
+      PLAZA, PANTANO, { x: CASCADA_POOL.x, z: CASCADA_POOL.z, r: CASCADA_POOL.r + 2 },
+      { x: MITO.pos[0], z: MITO.pos[2], r: 9 },
+      ...RIDGE,
+    ];
+    for (const h of [...VILLAGE, ...PORT_HOUSES]) circ.push({ x: h.pos[0], z: h.pos[2], r: 7 * (h.scale ?? 1) });
+    return circ;
+  }, []);
+
+  const free = useMemo(
+    () => (x: number, z: number, inset = 0.88) =>
+      isLand(x, z, inset) && !nearPath(x, z) && !blocked.some((c) => (x - c.x) ** 2 + (z - c.z) ** 2 < c.r ** 2),
+    [blocked]
+  );
+
   const forest = useMemo<Inst[]>(() => {
     const kinds = ["arbolGigante", "arbolNormal", "arbolNormal", "arbolFrutal"];
     const arr: Inst[] = [];
     let g = 0;
-    while (arr.length < 42 && g < 900) {
+    while (arr.length < 48 && g < 2000) {
       g++;
-      const x = 35 + Math.random() * 130, z = (Math.random() * 2 - 1) * 75;
-      if (!isLand(x, z, 0.86)) continue;
-      if ((x - LAGOON.x) ** 2 + (z - LAGOON.z) ** 2 < (LAGOON.r + 5) ** 2) continue;
-      arr.push({ id: kinds[arr.length % kinds.length], pos: [x, 0, z], rot: Math.random() * 6.28, scale: 1.5 + Math.random() * 1.1 });
+      const x = -200 + Math.random() * 400, z = -78 + Math.random() * 156;
+      if (!free(x, z, 0.86)) continue;
+      if (arr.some((t) => (t.pos[0] - x) ** 2 + (t.pos[2] - z) ** 2 < 14 ** 2)) continue;
+      arr.push({ id: kinds[arr.length % kinds.length], pos: [x, 0, z], rot: Math.random() * 6.28, scale: 1.7 + Math.random() * 1.3 });
     }
     return arr;
-  }, []);
+  }, [free]);
 
-  // casas metidas en el bosque
-  const forestHouses = useMemo<Inst[]>(() => {
+  // juncos alrededor del Gran Pantano
+  const reeds = useMemo<Inst[]>(() => {
     const arr: Inst[] = [];
-    let g = 0;
-    while (arr.length < 4 && g < 400) {
-      g++;
-      const x = 70 + Math.random() * 80, z = (Math.random() * 2 - 1) * 55;
-      if (!isLand(x, z, 0.85)) continue;
-      if ((x - LAGOON.x) ** 2 + (z - LAGOON.z) ** 2 < (LAGOON.r + 8) ** 2) continue;
-      if (arr.some((h) => (h.pos[0] - x) ** 2 + (h.pos[2] - z) ** 2 < 35 ** 2)) continue;
-      arr.push({ id: "casaNpc", pos: [x, 0, z], rot: Math.random() * 6.28, scale: 1.5 });
-    }
-    return arr;
-  }, []);
-
-  const lagoonTrees = useMemo<Inst[]>(() => {
-    const arr: Inst[] = [];
-    for (let i = 0; i < 7; i++) {
-      const a = (i / 7) * 6.28 + 0.5;
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * 6.28 + 0.4;
       arr.push({
         id: "arbolLaguna",
-        pos: [LAGOON.x + Math.cos(a) * (LAGOON.r + 4), 0, LAGOON.z + Math.sin(a) * (LAGOON.r + 4)],
-        rot: Math.random() * 6.28, scale: 1.5,
+        pos: [PANTANO.x + Math.cos(a) * (PANTANO.r - 2), 0, PANTANO.z + Math.sin(a) * (PANTANO.r - 2)],
+        rot: Math.random() * 6.28, scale: 1.3 + Math.random() * 0.5,
       });
     }
     return arr;
   }, []);
 
-  // puerto: anclado a un punto de la costa (panza), proyectado hacia el mar
-  const port = useMemo(() => {
-    const p = coastAt(0.84, 0.98);
-    const c = islandCenter();
-    const out = Math.atan2(p.y - c.y, p.x - c.x);
-    const ox = Math.cos(out), oz = Math.sin(out);
-    return {
-      dock: [p.x + ox * 6, OCEAN_Y + 0.9, p.y + oz * 6] as [number, number, number],
-      dockRot: out,
-      boats: [
-        [p.x + ox * 16, OCEAN_Y + 0.3, p.y + oz * 16] as [number, number, number],
-        [p.x + ox * 20 - oz * 7, OCEAN_Y + 0.3, p.y + oz * 20 + ox * 7] as [number, number, number],
-      ],
-    };
-  }, []);
+  // puerto en la bahía NE
+  const port = useMemo(() => ({
+    dock: [128, OCEAN_Y + 0.9, -36] as [number, number, number],
+    dockRot: 0,
+    boats: [
+      [118, OCEAN_Y + 0.3, -42] as [number, number, number],
+      [138, OCEAN_Y + 0.3, -45] as [number, number, number],
+    ],
+  }), []);
 
-  const faro = useMemo(() => coastAt(0.43, 0.95), []); // punta de la aleta superior
-
-  // exclusiones para el foliage (plaza, laguna, casas)
-  const exclude = useMemo(() => {
-    const circ = [
-      { x: PLAZA.x, z: PLAZA.z, r: PLAZA.r },
-      { x: LAGOON.x, z: LAGOON.z, r: LAGOON.r + 2 },
-      { x: MITO.pos[0], z: MITO.pos[2], r: 8 },
-    ];
-    for (const h of [...VILLAGE, ...forestHouses]) circ.push({ x: h.pos[0], z: h.pos[2], r: 6 * (h.scale ?? 1) });
-    return circ;
-  }, [forestHouses]);
-
-  const accept = useMemo(
-    () => (x: number, z: number) =>
-      isLand(x, z, 0.92) && !exclude.some((c) => (x - c.x) ** 2 + (z - c.z) ** 2 < c.r ** 2),
-    [exclude]
-  );
+  const accept = useMemo(() => (x: number, z: number) => free(x, z, 0.9), [free]);
 
   return (
     <>
-      <Sky sunPosition={[60, 18, -40]} turbidity={8} rayleigh={2.2} mieCoefficient={0.01} />
+      <Sky sunPosition={[80, 22, 40]} turbidity={8} rayleigh={2.2} mieCoefficient={0.01} />
       <hemisphereLight args={["#ffe9c2", "#46603a", 0.8]} />
       <ambientLight intensity={0.25} />
       <directionalLight
-        position={[60, 60, -10]} intensity={1.7} color="#ffe2b0" castShadow
-        shadow-mapSize={[2048, 2048]} shadow-camera-near={1} shadow-camera-far={300}
-        shadow-camera-left={-130} shadow-camera-right={130} shadow-camera-top={130} shadow-camera-bottom={-130}
+        position={[120, 90, 40]} intensity={1.7} color="#ffe2b0" castShadow
+        shadow-mapSize={[2048, 2048]} shadow-camera-near={1} shadow-camera-far={700}
+        shadow-camera-left={-220} shadow-camera-right={220} shadow-camera-top={160} shadow-camera-bottom={-160}
         shadow-bias={-0.0004}
       />
 
       <Ocean />
-      <Mountains />
+      {/* <Mountains /> */}
 
       {/* piso plano invisible (ecctrl camina sobre esto) */}
-      <RigidBody type="fixed" colliders={false}>
-        <CuboidCollider args={[260, 0.5, 130]} position={[0, -0.5, 0]} />
-      </RigidBody>
+      <Terrain />
 
       {/* muros invisibles en la costa */}
       <RigidBody type="fixed" colliders={false}>
@@ -162,18 +189,15 @@ export function World() {
         ))}
       </RigidBody>
 
-      {/* acantilado + playa + césped */}
-      <mesh geometry={cliffGeo}>
-        <meshStandardMaterial color="#6b5b4a" flatShading side={THREE.DoubleSide} />
-      </mesh>
-      <mesh geometry={beachGeo} receiveShadow>
-        <meshStandardMaterial color="#cbb083" side={THREE.DoubleSide} />
-      </mesh>
-      <mesh geometry={grassGeo} receiveShadow>
-        <meshStandardMaterial map={grass} side={THREE.DoubleSide} />
-      </mesh>
+      {/* Sendero del Encuentro con Kite */}
+      {pathSegs.map((s, i) => (
+        <mesh key={`pth${i}`} position={[s.mx, 0.08, s.mz]} rotation={[0, s.rot, 0]} receiveShadow>
+          <boxGeometry args={[s.len, 0.08, PATH_W * 2]} />
+          <meshStandardMaterial color="#9b8362" />
+        </mesh>
+      ))}
 
-      <Foliage count={9000} area={420} flowerRatio={0.06} accept={accept} />
+      <Foliage count={9000} area={480} flowerRatio={0.06} accept={accept} />
 
       {/* plaza + fuente */}
       <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[PLAZA.x, 0.06, PLAZA.z]}>
@@ -191,16 +215,30 @@ export function World() {
         </mesh>
       </group>
 
-      {/* laguna del altiplano */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[LAGOON.x, 0.08, LAGOON.z]}>
-        <circleGeometry args={[LAGOON.r, 56]} />
-        <meshStandardMaterial color="#25b0c9" roughness={0.1} metalness={0.1} side={THREE.DoubleSide} />
+      {/* Gran Pantano (SE) — agua de ciénaga somera (todavía NO nadable) */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[PANTANO.x, 0.06, PANTANO.z]}>
+        <circleGeometry args={[PANTANO.r, 56]} />
+        <meshStandardMaterial color="#3f7d5a" roughness={0.5} metalness={0.05} transparent opacity={0.92} side={THREE.DoubleSide} />
       </mesh>
 
-      {/* faro en la punta de la aleta + rocas */}
-      <Prop propId="faro" position={[faro.x, 0, faro.y]} rotation={0} scale={1.5} />
-      <Prop propId="roca" position={[faro.x + 5, -0.6, faro.y + 4]} scale={3} />
-      <Prop propId="roca" position={[faro.x - 3, -0.6, faro.y - 5]} scale={2.6} />
+      {/* Cascada Grande (placeholder: 2 planos translúcidos + pileta) */}
+      <group position={[-6, 0, 2]}>
+        <mesh position={[0, 31, 0]} rotation={[0, Math.PI / 2, 0]}>
+          <planeGeometry args={[6, 20]} />
+          <meshStandardMaterial color="#dff1f7" transparent opacity={0.8} side={THREE.DoubleSide} />
+        </mesh>
+        <mesh position={[0, 11, 0]} rotation={[0, Math.PI / 2, 0]}>
+          <planeGeometry args={[6, 22]} />
+          <meshStandardMaterial color="#9fd4e6" transparent opacity={0.75} side={THREE.DoubleSide} />
+        </mesh>
+      </group>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[CASCADA_POOL.x, 0.1, CASCADA_POOL.z]}>
+        <circleGeometry args={[CASCADA_POOL.r, 36]} />
+        <meshStandardMaterial color="#bfe6f0" transparent opacity={0.8} roughness={0.15} side={THREE.DoubleSide} />
+      </mesh>
+
+      {/* faro (luz del puerto) en la cabecera de la bahía */}
+      {/* <Prop propId="faro" position={[146, 0, -40]} rotation={0} scale={1.5} /> */}
 
       {/* puerto */}
       <Prop propId="muelle" position={port.dock} rotation={port.dockRot} scale={1.4} />
@@ -208,21 +246,19 @@ export function World() {
         <Prop key={`b${i}`} propId="bote" position={b} rotation={port.dockRot + 0.3} scale={1.3} />
       ))}
 
-      {/* pueblo */}
-      <Prop propId={MITO.id} position={MITO.pos} rotation={MITO.rot} scale={MITO.scale} />
-      {VILLAGE.map((h, i) => (
-        <Prop key={`v${i}`} propId={h.id} position={h.pos} rotation={h.rot} scale={h.scale} />
-      ))}
-      {forestHouses.map((h, i) => (
-        <Prop key={`fh${i}`} propId={h.id} position={h.pos} rotation={h.rot} scale={h.scale} />
-      ))}
+      {/* Casa de Gon/Mito + pueblo + asentamiento del puerto */}
+      {/* <Prop propId={MITO.id} position={MITO.pos} rotation={MITO.rot} scale={MITO.scale} />
+      {[...VILLAGE, ...PORT_HOUSES].map((h, i) => (
+        <Prop key={`h${i}`} propId={h.id} position={h.pos} rotation={h.rot} scale={h.scale} />
+      ))} */}
+      <PlacedProps />
 
-      {/* bosque + laguna + costa */}
+      {/* bosque + juncos + rocas */}
       {forest.map((f, i) => (
         <Prop key={`t${i}`} propId={f.id} position={f.pos} rotation={f.rot} scale={f.scale} />
       ))}
-      {lagoonTrees.map((f, i) => (
-        <Prop key={`lt${i}`} propId={f.id} position={f.pos} rotation={f.rot} scale={f.scale} />
+      {reeds.map((f, i) => (
+        <Prop key={`r${i}`} propId={f.id} position={f.pos} rotation={f.rot} scale={f.scale} />
       ))}
       {cliffs.map((c, i) => (
         <Prop key={`c${i}`} propId={c.id} position={c.pos} rotation={c.rot} scale={c.scale} />

@@ -1,7 +1,7 @@
 import { useFrame } from "@react-three/fiber";
 import { useMemo, useRef } from "react";
 import * as THREE from "three";
-import { OCEAN_Y } from "../data/Island";
+import { OCEAN_Y } from "../data/island";
 
 export function Ocean() {
   const ref = useRef<THREE.Mesh>(null);

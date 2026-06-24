@@ -4,8 +4,8 @@ import * as THREE from "three";
 import { registry, registerEnemy, unregisterEnemy, nextId } from "../registry";
 import { useRPG } from "../store";
 import { EnemyModel } from "./EnemyModel";
-import { getEnemy } from "../data/Enemies";
-import { randomLandPoint } from "../data/Island";
+import { getEnemy } from "../data/enemies";
+import { randomLandPoint } from "../data/island";
 
 const _p = new THREE.Vector3();
 const _self = new THREE.Vector3();

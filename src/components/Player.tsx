@@ -9,6 +9,7 @@ import { hitInRadius } from "../damage";
 import { useSkillByCode } from "../skills";
 import { startMove } from "../combat";
 import { MOVES, PUNCH_COMBO, type Move } from "../data/moves";
+import { heightAt } from "./Terrain";
 
 const _tmp = new THREE.Vector3();
 const CHAIN_WINDOW = 1.2;
@@ -21,6 +22,8 @@ export function Player() {
   const punchStep = useRef(0);
   const lastInputAt = useRef(0);
   const lastToken = useRef<"P" | "K" | "">("");
+  const SPAWN: [number, number] = [60, 0]; // zona llana entre cascada y puerto
+  const spawnY = heightAt(SPAWN[0], SPAWN[1]) + 2;
 
   useEffect(() => {
     setPlayer(ref.current);
@@ -114,12 +117,12 @@ export function Player() {
   return (
     <Ecctrl
       animated
-      position={[0, 3, 6]}
+      position={[SPAWN[0], spawnY, SPAWN[1]]}
       maxVelLimit={4}
       sprintMult={1.8}
       jumpVel={4}
-      camInitDis={-7}
-      camMaxDis={-12}
+      camInitDis={-300}
+      camMaxDis={-350}
       camMinDis={-2}
     >
       <group ref={ref}>
