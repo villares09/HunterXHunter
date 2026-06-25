@@ -22,8 +22,11 @@ export function Player() {
   const punchStep = useRef(0);
   const lastInputAt = useRef(0);
   const lastToken = useRef<"P" | "K" | "">("");
-  const SPAWN: [number, number] = [60, 0]; // zona llana entre cascada y puerto
-  const spawnY = heightAt(SPAWN[0], SPAWN[1]) + 2;
+  // === SPAWN === zona de pasto firme al lado de la casa (sacado de ?edit)
+  const SPAWN: [number, number] = [95, -32];
+  // protección: el piso nunca puede estar bajo el agua. +3 de margen para caer limpio.
+  const groundY = heightAt(SPAWN[0], SPAWN[1]);
+  const spawnY = Math.max(groundY, 1) + 3;
 
   useEffect(() => {
     setPlayer(ref.current);
@@ -121,9 +124,12 @@ export function Player() {
       maxVelLimit={4}
       sprintMult={1.8}
       jumpVel={4}
-      camInitDis={-300}
-      camMaxDis={-350}
-      camMinDis={-2}
+      camInitDis={-5}
+      camMaxDis={-10}
+      camMinDis={-1.5}
+      autoBalance={true}
+      autoBalanceSpringK={0.3}
+      autoBalanceDampingC={0.03}
     >
       <group ref={ref}>
         <CharacterModel />

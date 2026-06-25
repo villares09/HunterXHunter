@@ -14,8 +14,11 @@ export function EditorHUD() {
   const selected = useEditor((s) => s.selected);
   const gizmo = useEditor((s) => s.gizmo);
   const snap = useEditor((s) => s.snap);
+  const showMap = useEditor((s) => s.showMap);
   const setGizmo = useEditor((s) => s.setGizmo);
   const toggleSnap = useEditor((s) => s.toggleSnap);
+  const toggleMap = useEditor((s) => s.toggleMap);
+  const spawn = useEditor((s) => s.spawn);
   const add = useEditor((s) => s.add);
   const remove = useEditor((s) => s.remove);
   const load = useEditor((s) => s.load);
@@ -26,6 +29,7 @@ export function EditorHUD() {
   return (
     <div style={{
       position: "fixed", top: 16, left: 16, zIndex: 99999, width: 250,
+      maxHeight: "calc(100vh - 32px)", overflowY: "auto",
       background: "rgba(15,15,15,0.92)", color: "#eee", padding: 14, borderRadius: 10,
       fontFamily: "system-ui, sans-serif", display: "flex", flexDirection: "column", gap: 10,
     }}>
@@ -40,6 +44,12 @@ export function EditorHUD() {
       <button style={snap ? BTN_ON : BTN} onClick={toggleSnap}>
         {snap ? "✓ " : ""}Pegar al suelo
       </button>
+      <button style={showMap ? BTN_ON : BTN} onClick={toggleMap}>
+        {showMap ? "✓ " : ""}Ver mapa de referencia
+      </button>
+      <div style={{ fontSize: 11, opacity: 0.7, background: "#1c1c1c", padding: "6px 8px", borderRadius: 5 }}>
+        📍 centro cámara: X {spawn[0].toFixed(0)} · Z {spawn[2].toFixed(0)}
+      </div>
 
       <div style={{ fontSize: 11, opacity: 0.7 }}>
         {selected ? `Seleccionado: ${selected}` : "Nada seleccionado · click en un asset"}
@@ -52,7 +62,7 @@ export function EditorHUD() {
       <div style={{ borderTop: "1px solid #333", paddingTop: 8, fontSize: 11, opacity: 0.7 }}>Agregar:</div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
         {Object.keys(PROPS).map((id) => (
-          <button key={id} style={{ ...BTN, fontSize: 11 }} onClick={() => add(id, [0, 0, 0])}>
+          <button key={id} style={{ ...BTN, fontSize: 11 }} onClick={() => add(id)}>
             + {id}
           </button>
         ))}

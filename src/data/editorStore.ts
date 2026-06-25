@@ -32,11 +32,15 @@ type State = {
   selected: string | null;
   gizmo: Gizmo;
   snap: boolean;
+  showMap: boolean;
+  spawn: [number, number, number];
   setSelected: (k: string | null) => void;
   setGizmo: (g: Gizmo) => void;
   toggleSnap: () => void;
+  toggleMap: () => void;
   commit: (key: string, pos: [number, number, number], rot: number, scale: number) => void;
-  add: (propId: string, pos: [number, number, number]) => void;
+  add: (propId: string) => void;
+  setSpawn: (p: [number, number, number]) => void;
   remove: (key: string) => void;
   load: (instances: Instance[]) => void;
 };
@@ -48,16 +52,20 @@ export const useEditor = create<State>()(
       selected: null,
       gizmo: "translate",
       snap: true,
+      showMap: false,
+      spawn: [0, 0, 0],
       setSelected: (selected) => set({ selected }),
       setGizmo: (gizmo) => set({ gizmo }),
       toggleSnap: () => set((s) => ({ snap: !s.snap })),
+      toggleMap: () => set((s) => ({ showMap: !s.showMap })),
       commit: (key, pos, rot, scale) =>
         set((s) => ({ instances: s.instances.map((i) => (i.key === key ? { ...i, pos, rot, scale } : i)) })),
-      add: (propId, pos) =>
+      add: (propId) =>
         set((s) => {
           const key = newKey();
-          return { instances: [...s.instances, { key, propId, pos, rot: 0, scale: 1.5 }], selected: key };
+          return { instances: [...s.instances, { key, propId, pos: s.spawn, rot: 0, scale: 1.5 }], selected: key };
         }),
+      setSpawn: (spawn) => set({ spawn }),
       remove: (key) =>
         set((s) => ({
           instances: s.instances.filter((i) => i.key !== key),

@@ -10,7 +10,7 @@ import { useRPG } from "../store";
 
 MODELS.forEach((m) => useGLTF.preload(m.url));
 
-const FEET_Y = -0.65;
+const FEET_Y = -0.90;
 const TARGET_HEIGHT = 1.35;
 const JUMP_SPEED = 0.69; // velocidad de la animación de salto (ajustable a ojo)
 const _v = new THREE.Vector3();

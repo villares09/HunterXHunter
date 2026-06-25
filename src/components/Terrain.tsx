@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTexture } from "@react-three/drei";
 import { ThreeEvent } from "@react-three/fiber";
-import { RigidBody, TrimeshCollider } from "@react-three/rapier";
+import { RigidBody, HeightfieldCollider } from "@react-three/rapier";
 import * as THREE from "three";
 import { OCEAN_Y } from "../data/island";
 import {
@@ -157,12 +157,27 @@ export function Terrain({ sculptMode = false, refOnly = false }: { sculptMode?: 
 
   useEffect(() => { fillGeometry(geo); }, [geo, rev]);
 
-  const collider = useMemo(() => {
+  /* HeightfieldCollider: liviano y hecho para terreno (en vez de Trimesh pesado).
+     Rapier espera las alturas en orden COLUMNA-MAYOR y centradas en el origen,
+     con scale = tamaño total en X/Z. heights[col*(nrows+1)+row]. */
+  const heightfield = useMemo(() => {
     if (sculptMode) return null;
-    const verts = (geo.attributes.position as THREE.BufferAttribute).array as Float32Array;
-    const idx = geo.index!.array as ArrayLike<number>;
-    return { verts: verts.slice(), idx: Uint32Array.from(idx) };
-  }, [geo, sculptMode, rev]);
+    const m = getMeta(), h = getHeights(), W = m.nx + 1;
+    // Rapier heightfield: rows -> eje Z, cols -> eje X.
+    // Almacenamiento columna-mayor: heights[ x*(nz+1) + z ] (z varía más rápido).
+    const nrows = m.nz, ncols = m.nx;
+    const heights: number[] = [];
+    const FLOOR = OCEAN_Y - 1;
+    for (let x = 0; x <= m.nx; x++) {     // columnas (X) -> j
+      for (let z = 0; z <= m.nz; z++) {   // filas (Z) -> i (varía rápido)
+        const v = h[z * W + x];
+        heights.push(Number.isFinite(v) ? v : FLOOR); // nunca NaN -> no rompe Rapier
+      }
+    }
+    const sizeX = m.cell * m.nx, sizeZ = m.cell * m.nz;
+    const cx = m.x0 + sizeX / 2, cz = m.z0 + sizeZ / 2;
+    return { nrows, ncols, heights, scale: { x: sizeX, y: 1, z: sizeZ }, cx, cz };
+  }, [sculptMode, rev]);
 
   const onDown = (e: ThreeEvent<PointerEvent>) => {
     if (!sculptMode || e.button !== 0) return;
@@ -210,7 +225,12 @@ export function Terrain({ sculptMode = false, refOnly = false }: { sculptMode?: 
   return (
     <RigidBody type="fixed" colliders={false}>
       {mesh}
-      {collider && <TrimeshCollider args={[collider.verts, collider.idx]} />}
+      {heightfield && (
+        <HeightfieldCollider
+          position={[heightfield.cx, 0, heightfield.cz]}
+          args={[heightfield.nrows, heightfield.ncols, heightfield.heights, heightfield.scale]}
+        />
+      )}
     </RigidBody>
   );
 }

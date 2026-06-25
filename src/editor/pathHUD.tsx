@@ -1,4 +1,4 @@
-import { usePath, applyPath } from "../data/pathStore";
+import { usePath, applyPath, fillPath } from "../data/pathStore";
 import { BIOME_ROAD, BIOME_TOWN, BIOME_SWAMP, BIOME_GRASS } from "../data/terrainStore";
 
 const BTN: React.CSSProperties = {
@@ -10,11 +10,13 @@ const ON: React.CSSProperties = { ...BTN, background: "#4ade80", color: "#06280f
 export function PathHUD() {
   const points = usePath((s) => s.points);
   const width = usePath((s) => s.width);
+  const depth = usePath((s) => s.depth);
   const biome = usePath((s) => s.biome);
   const opacity = usePath((s) => s.mapOpacity);
   const undo = usePath((s) => s.undo);
   const clear = usePath((s) => s.clear);
   const setWidth = usePath((s) => s.setWidth);
+  const setDepth = usePath((s) => s.setDepth);
   const setBiome = usePath((s) => s.setBiome);
   const setOpacity = usePath((s) => s.setOpacity);
 
@@ -41,8 +43,14 @@ export function PathHUD() {
       <label style={{ fontSize: 12 }}>Ancho: {width.toFixed(0)} m</label>
       <input type="range" min={2} max={20} step={1} value={width} onChange={(e) => setWidth(+e.target.value)} />
 
-      <label style={{ fontSize: 12 }}>Opacidad del mapa: {opacity.toFixed(2)}</label>
-      <input type="range" min={0.2} max={1} step={0.05} value={opacity} onChange={(e) => setOpacity(+e.target.value)} />
+      <label style={{ fontSize: 12 }}>Hundir (surco): {depth.toFixed(1)} m {depth === 0 ? "(plano)" : ""}</label>
+      <input type="range" min={0} max={5} step={0.1} value={depth} onChange={(e) => setDepth(+e.target.value)} />
+
+      <label style={{ fontSize: 12 }}>Mapa de referencia: {opacity === 0 ? "oculto" : opacity.toFixed(2)}</label>
+      <input type="range" min={0} max={1} step={0.05} value={opacity} onChange={(e) => setOpacity(+e.target.value)} />
+      <button style={BTN} onClick={() => setOpacity(opacity === 0 ? 0.6 : 0)}>
+        {opacity === 0 ? "Mostrar mapa" : "Ocultar mapa"}
+      </button>
 
       <div style={{ fontSize: 12, opacity: 0.85 }}>Puntos: {points.length}</div>
 
@@ -57,6 +65,14 @@ export function PathHUD() {
         onClick={() => { applyPath(); }}
       >
         ✓ Pintar camino
+      </button>
+
+      <button
+        style={{ ...BTN, opacity: points.length >= 2 ? 1 : 0.4 }}
+        disabled={points.length < 2}
+        onClick={() => { fillPath(); }}
+      >
+        ⤴ Rellenar (sacar surco)
       </button>
 
       <div style={{ fontSize: 10, opacity: 0.55, lineHeight: 1.4 }}>

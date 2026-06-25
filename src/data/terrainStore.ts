@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { coastPolygon, isLand, OCEAN_Y } from "./island";
 
 /* ===================== config ===================== */
-const CELL = 10;
+const CELL = 5;            // resolución fina
 const MARGIN = 90;
 const LAND_FLAT = 1.5;
 const SHORE_Y = OCEAN_Y + 0.5;
@@ -70,6 +70,18 @@ function buildFlat() {
   }
 }
 
+
+/* limpia cualquier valor inválido (NaN/Infinity) de las alturas: un solo NaN
+   invalida el collider de Rapier y rompe TODA la física (el jugador cae al vacío). */
+function sanitizeHeights() {
+  if (!HEIGHTS) return;
+  const FLOOR = OCEAN_Y - 1;
+  for (let i = 0; i < HEIGHTS.length; i++) {
+    const v = HEIGHTS[i];
+    if (!Number.isFinite(v)) HEIGHTS[i] = FLOOR;
+  }
+}
+
 function loadOrBuild() {
   if (typeof window !== "undefined") {
     const saved = window.localStorage.getItem(LS_KEY);
@@ -79,11 +91,13 @@ function loadOrBuild() {
         META = o.meta;
         HEIGHTS = Float32Array.from(o.heights);
         BIOME = o.biome ? Uint8Array.from(o.biome) : new Uint8Array(HEIGHTS.length);
+        sanitizeHeights();
         return;
       } catch { /* cae a flat */ }
     }
   }
   buildFlat();
+  sanitizeHeights();
 }
 
 function ensure() { if (!HEIGHTS || !META || !BIOME) loadOrBuild(); }
@@ -103,7 +117,8 @@ export function heightAt(x: number, z: number): number {
   const W = m.nx + 1;
   const a = h[j0 * W + i0], b = h[j0 * W + i0 + 1];
   const c = h[(j0 + 1) * W + i0], d = h[(j0 + 1) * W + i0 + 1];
-  return (a * (1 - fx) + b * fx) * (1 - fz) + (c * (1 - fx) + d * fx) * fz;
+  const y = (a * (1 - fx) + b * fx) * (1 - fz) + (c * (1 - fx) + d * fx) * fz;
+  return Number.isFinite(y) ? y : OCEAN_Y - 1;
 }
 
 /* ===================== persistencia (debounce) ===================== */
@@ -158,22 +173,69 @@ export function sculpt(x: number, z: number) {
 }
 
 /* ===================== pintar bioma a lo largo de una línea (caminos) ===================== */
-export function paintBiomePath(pts: [number, number][], width: number, biomeId: number) {
+/* distancia mínima de un punto a la polilínea */
+function distToPolyline(vx: number, vz: number, pts: [number, number][]): number {
+  let dmin = Infinity;
+  for (let k = 0; k < pts.length - 1; k++) {
+    const ax = pts[k][0], az = pts[k][1], bx = pts[k + 1][0], bz = pts[k + 1][1];
+    const dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz || 1;
+    let t = ((vx - ax) * dx + (vz - az) * dz) / l2; t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const d = Math.hypot(vx - (ax + t * dx), vz - (az + t * dz));
+    if (d < dmin) dmin = d;
+  }
+  return dmin;
+}
+
+/* nivel del terreno JUSTO AFUERA de la franja, alrededor de (vx,vz).
+   sirve para hundir/rellenar en ABSOLUTO sin acumular. */
+function refLevelAround(vx: number, vz: number, rEdge: number): number {
+  const m = META!, h = HEIGHTS!, W = m.nx + 1;
+  const ringR = rEdge + m.cell * 1.5;
+  let sum = 0, n = 0;
+  for (let a = 0; a < 8; a++) {
+    const ang = (a / 8) * Math.PI * 2;
+    const sx = vx + Math.cos(ang) * ringR, sz = vz + Math.sin(ang) * ringR;
+    const gi = Math.round((sx - m.x0) / m.cell), gj = Math.round((sz - m.z0) / m.cell);
+    if (gi < 0 || gi > m.nx || gj < 0 || gj > m.nz) continue;
+    sum += h[gj * W + gi]; n++;
+  }
+  return n ? sum / n : 0;
+}
+
+/* mode: "dig" hunde el surco (absoluto), "fill" lo rellena al nivel de alrededor */
+export function paintBiomePath(
+  pts: [number, number][], width: number, biomeId: number, depth = 0, mode: "dig" | "fill" = "dig"
+) {
   ensure();
   if (pts.length < 2) return;
-  const m = META!, bio = BIOME!, W = m.nx + 1, r = width / 2;
+  const m = META!, bio = BIOME!, h = HEIGHTS!, W = m.nx + 1, r = width / 2;
+  const rEdge = r + width * 0.5; // borde externo de la U
+
   for (let j = 0; j <= m.nz; j++) {
     for (let i = 0; i <= m.nx; i++) {
       const vx = m.x0 + i * m.cell, vz = m.z0 + j * m.cell;
-      let dmin = Infinity;
-      for (let k = 0; k < pts.length - 1; k++) {
-        const ax = pts[k][0], az = pts[k][1], bx = pts[k + 1][0], bz = pts[k + 1][1];
-        const dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz || 1;
-        let t = ((vx - ax) * dx + (vz - az) * dz) / l2; t = t < 0 ? 0 : t > 1 ? 1 : t;
-        const d = Math.hypot(vx - (ax + t * dx), vz - (az + t * dz));
-        if (d < dmin) dmin = d;
+      const dmin = distToPolyline(vx, vz, pts);
+      if (dmin > rEdge) continue;
+      const idx = j * W + i;
+
+      if (mode === "fill") {
+        // rellenar: subir todo al nivel de alrededor (saca el surco)
+        const ref = refLevelAround(vx, vz, rEdge);
+        const u = smoothstep(clamp01(1 - dmin / rEdge));
+        h[idx] = h[idx] + (ref - h[idx]) * u;
+        continue;
       }
-      if (dmin <= r) bio[j * W + i] = biomeId;
+
+      // dig: pinta bioma en el ancho del camino
+      if (dmin <= r) bio[idx] = biomeId;
+
+      // hundido ABSOLUTO: el objetivo es (nivel de alrededor - depth) en el centro,
+      // subiendo suave hasta el borde. No se acumula al repintar.
+      if (depth !== 0) {
+        const ref = refLevelAround(vx, vz, rEdge);
+        const u = smoothstep(clamp01(1 - dmin / rEdge)); // 1 centro -> 0 borde
+        h[idx] = ref - depth * u; // absoluto: nunca se acumula al repintar
+      }
     }
   }
   useTerrain.getState().bump();
@@ -194,13 +256,47 @@ export function exportHeightmap() {
   URL.revokeObjectURL(url);
 }
 
+/* sample bilineal sobre una grilla cualquiera (para remuestrear al importar) */
+function sampleGrid(meta: Meta, heights: Float32Array, x: number, z: number): number {
+  const gx = (x - meta.x0) / meta.cell, gz = (z - meta.z0) / meta.cell;
+  const i0 = Math.max(0, Math.min(meta.nx - 1, Math.floor(gx)));
+  const j0 = Math.max(0, Math.min(meta.nz - 1, Math.floor(gz)));
+  const fx = clamp01(gx - i0), fz = clamp01(gz - j0), W = meta.nx + 1;
+  const a = heights[j0 * W + i0], b = heights[j0 * W + i0 + 1];
+  const c = heights[(j0 + 1) * W + i0], d = heights[(j0 + 1) * W + i0 + 1];
+  const y = (a * (1 - fx) + b * fx) * (1 - fz) + (c * (1 - fx) + d * fx) * fz;
+  return Number.isFinite(y) ? y : OCEAN_Y - 1;
+}
+function nearestBiome(meta: Meta, biome: Uint8Array, x: number, z: number): number {
+  const gx = Math.round((x - meta.x0) / meta.cell), gz = Math.round((z - meta.z0) / meta.cell);
+  const i = Math.max(0, Math.min(meta.nx, gx)), j = Math.max(0, Math.min(meta.nz, gz));
+  return biome[j * (meta.nx + 1) + i] ?? 0;
+}
+
 export function importHeightmap(file: File) {
   const r = new FileReader();
   r.onload = () => {
     try {
       const o = JSON.parse(String(r.result)) as { meta: Meta; heights: number[]; biome?: number[] };
-      META = o.meta; HEIGHTS = Float32Array.from(o.heights);
-      BIOME = o.biome ? Uint8Array.from(o.biome) : new Uint8Array(HEIGHTS.length);
+      const srcMeta = o.meta;
+      const srcH = Float32Array.from(o.heights);
+      const srcB = o.biome ? Uint8Array.from(o.biome) : new Uint8Array(srcH.length);
+
+      if (srcMeta.cell === CELL) {
+        // misma resolución: cargar tal cual
+        META = srcMeta; HEIGHTS = srcH; BIOME = srcB;
+      } else {
+        // distinta resolución: rearmar grilla a CELL actual y remuestrear el viejo
+        buildFlat(); // define META/HEIGHTS/BIOME a la resolución nueva
+        const m = META!, W = m.nx + 1;
+        for (let j = 0; j <= m.nz; j++) {
+          for (let i = 0; i <= m.nx; i++) {
+            const x = m.x0 + i * m.cell, z = m.z0 + j * m.cell, idx = j * W + i;
+            HEIGHTS![idx] = sampleGrid(srcMeta, srcH, x, z);
+            BIOME![idx] = nearestBiome(srcMeta, srcB, x, z);
+          }
+        }
+      }
       saveLocalDebounced(); useTerrain.getState().bump();
     } catch { alert("No pude leer el heightmap."); }
   };
