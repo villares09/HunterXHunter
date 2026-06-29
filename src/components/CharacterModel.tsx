@@ -3,17 +3,16 @@ import { useFrame } from "@react-three/fiber";
 import { useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { SkeletonUtils } from "three-stdlib";
-import { useGame } from "ecctrl";
 import { attack, swingElapsed, SWING } from "../combat";
 import { MODELS, getModel } from "../data/models";
 import { useRPG } from "../store";
+import { move, jump } from "./Movement";
+
+export const FEET_Y = -0.90;
+const TARGET_HEIGHT = 1.35;
+const _v = new THREE.Vector3();
 
 MODELS.forEach((m) => useGLTF.preload(m.url));
-
-const FEET_Y = -0.90;
-const TARGET_HEIGHT = 1.35;
-const JUMP_SPEED = 0.69; // velocidad de la animación de salto (ajustable a ojo)
-const _v = new THREE.Vector3();
 
 export function CharacterModel() {
   const modelId = useRPG((s) => s.character?.modelId) ?? "gon";
@@ -46,30 +45,8 @@ function CharacterModelInner({ modelId }: { modelId: string }) {
   const cur = useRef<string>("");
   const lastSwingAt = useRef(0);
 
-  // hit-reaction del player: poleamos hp como el oso pollea en.hp
   const prevHp = useRef(0);
   const hurtUntil = useRef(0);
-
-  // Nombre canónico del clip de salto (para distinguirlo en play).
-  const jumpName = def.anim.jump ?? def.anim.idle;
-
-  // Inicializa el set de animaciones que ecctrl usa para setear curAnimation.
-  const animSet = useMemo(
-    () => ({
-      idle: def.anim.idle,
-      walk: def.anim.walk,
-      run: def.anim.run,
-      jump: jumpName,
-      jumpIdle: jumpName,
-      jumpLand: def.anim.idle, // no tenemos clip de aterrizaje aparte -> idle directo
-      fall: jumpName,
-    }),
-    [def, jumpName]
-  );
-
-  useLayoutEffect(() => {
-    useGame.getState().initializeAnimationSet(animSet);
-  }, [animSet]);
 
   useLayoutEffect(() => {
     model.traverse((o) => {
@@ -88,7 +65,6 @@ function CharacterModelInner({ modelId }: { modelId: string }) {
     cur.current = "";
   }, [model, def]);
 
-  // Reproduce UNA sola animación pura (corta el resto), igual que el visor.
   const play = (clip: string, once = false, fade = 0.12, speed = 1) => {
     if (!clip || cur.current === clip) return;
     const next = actions[clip];
@@ -112,27 +88,27 @@ function CharacterModelInner({ modelId }: { modelId: string }) {
 
     const S = useRPG.getState();
 
-    // --- MUERTE: se cae y se clava en el piso. Prioridad máxima. ---
+    // --- MUERTE: prioridad máxima ---
     if (S.dead) {
       prevHp.current = S.hp;
       if (def.anim.down) play(def.anim.down, true, 0.15);
       return;
     }
 
-    // --- HIT-REACTION: si hp bajó respecto al frame anterior, comimos un golpe. ---
+    // --- HIT-REACTION ---
     if (def.anim.hurt && S.hp < prevHp.current) {
       const d = actions[def.anim.hurt]?.getClip().duration ?? 0.5;
       hurtUntil.current = performance.now() + d * 1000;
-      cur.current = ""; // re-dispara la anim aunque ya estuviéramos reaccionando (multi-golpe)
+      cur.current = "";
     }
     prevHp.current = S.hp;
 
     if (def.anim.hurt && performance.now() < hurtUntil.current) {
       play(def.anim.hurt, true, 0.08);
-      return; // tapa ataque y locomoción mientras dura la reacción
+      return;
     }
 
-    // --- ATAQUE: nuestro sistema, tiene prioridad sobre locomoción ---
+    // --- ATAQUE ---
     if (attack.active && attack.move) {
       const name = attack.move.clip;
       const act = actions[name];
@@ -152,11 +128,19 @@ function CharacterModelInner({ modelId }: { modelId: string }) {
       attack.active = false;
     }
 
-    // --- LOCOMOCIÓN + SALTO: lo decide ecctrl (detección de piso por rayo) ---
-    const ca = useGame.getState().curAnimation;
-    const clip = ca ?? def.anim.idle;
-    const isJump = clip === jumpName && jumpName !== def.anim.idle;
-    play(clip, isJump, isJump ? 0.08 : 0.15, isJump ? JUMP_SPEED : 1);
+    // --- SALTO: prioridad sobre la locomoción ---
+    if (jump.active && def.anim.jump) {
+      play(def.anim.jump, false, 0.08, 1);
+      return;
+    }
+
+    // --- LOCOMOCIÓN ---
+    const loco = move.locomotion;
+    const clip =
+      loco === "run" ? def.anim.run :
+      loco === "walk" ? def.anim.walk :
+      def.anim.idle;
+    play(clip || def.anim.idle, false, 0.15, 1);
   });
 
   return (

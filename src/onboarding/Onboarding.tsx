@@ -4,6 +4,7 @@ import { MODELS } from "../data/models";
 import { useRPG } from "../store";
 import { saveCharacter } from "../roster";
 import "./onboarding.css";
+import { computeInit } from "../character";
 
 const STAT_DEFS = [
   { id: "fuerza", nm: "Fuerza" },
@@ -27,6 +28,7 @@ function derive(e: Record<string, number>) {
     "Daño": Math.round(5 + e.fuerza * 1.5),
     "Absorción": Math.round(e.resistencia * 0.6),
     Nen: Math.round(e.inteligencia * 2 + e.percepcion),
+    "Estamina": Math.round(20 + e.resistencia * 5 + e.agilidad * 3), // aguante físico
   };
 }
 
@@ -60,16 +62,9 @@ export function Onboarding() {
 
   const finish = () => {
     if (!category) return;
-    const p = category.passive;
-    const init = {
-      maxHp: Math.round(d["Vida Total"] * (p.hpMult ?? 1)),
-      maxAura: Math.round(Math.max(40, d.Nen * 4) * (p.auraMult ?? 1)),
-      baseDmg: Math.max(6, d["Daño"]),
-      passiveDmg: p.dmgMult ?? 1,
-    };
     const char = { name: name.trim(), sex, origin, category: category.id, modelId, stats: effective, derived: d };
-    saveCharacter(char);     // queda guardado en el roster (localStorage)
-    setCharacter(char, init);
+    saveCharacter(char);
+    setCharacter(char, computeInit(d, category.id, effective));
   };
 
   return (
@@ -77,7 +72,7 @@ export function Onboarding() {
       <div className="ob-steps">
         <span className={"s" + (step === "create" ? " on" : "")}>1 · PERSONAJE</span>
         <span className={"s" + (step === "test" ? " on" : "")}>2 · PERSONALIDAD</span>
-        <span className={"s" + (step === "result" ? " on" : "")}>3 · TU NEN</span>
+        <span className={"s" + (step === "result" ? " on" : "")}>3 · RESUMEN</span>
       </div>
 
       {step === "create" && (
@@ -134,8 +129,8 @@ export function Onboarding() {
               </div>
               <h2 style={{ marginTop: 16 }}>Atributos</h2>
               <div className="derived">
-                {Object.entries(d).map(([k, v]) => (
-                  <div key={k} className={"d-stat" + (k === "Nen" ? " nen" : "")}>
+                {Object.entries(d).filter(([k]) => k !== "Nen").map(([k, v]) => (
+                  <div key={k} className="d-stat">
                     <div className="l">{k.toUpperCase()}</div><div className="v">{v}</div>
                   </div>
                 ))}
@@ -169,21 +164,20 @@ export function Onboarding() {
       {step === "result" && category && (
         <>
           <div className="ob-card result">
-            <div className="ey" style={{ color: "var(--gold)" }}>TU CATEGORÍA DE NEN</div>
-            <div className="cat" style={{ color: category.color }}>{category.name}</div>
-            <div className="aff" style={{ background: category.color + "22", color: category.color, border: `1px solid ${category.color}66` }}>
-              {category.affinity}
+            <div className="ey" style={{ color: "var(--gold)" }}>TU PERSONAJE</div>
+            <div className="charline" style={{ marginBottom: 14 }}>
+              <b>{name}</b> · {origin === "bosque" ? "Criado en el bosque" : "Criado en ciudad"} · {MODELS.find((m) => m.id === modelId)?.name}
             </div>
-            <p className="desc">{category.desc}</p>
-            <div className="kit">
-              <div className="k"><div className="l">SKILL DESTACADA</div><div className="v">{category.featuredSkill}</div></div>
-              <div className="k"><div className="l">VIDA</div><div className="v">{Math.round(d["Vida Total"] * (category.passive.hpMult ?? 1))}</div></div>
-              <div className="k nen"><div className="l">AURA</div><div className="v" style={{ color: category.color }}>{Math.round(Math.max(40, d.Nen * 4) * (category.passive.auraMult ?? 1))}</div></div>
+            <div className="derived">
+              {Object.entries(d).filter(([k]) => k !== "Nen").map(([k, v]) => (
+                <div key={k} className="d-stat">
+                  <div className="l">{k.toUpperCase()}</div><div className="v">{v}</div>
+                </div>
+              ))}
             </div>
-            <div className="charline"><b>{name}</b> · {origin === "bosque" ? "Criado en el bosque" : "Criado en ciudad"} · {MODELS.find((m) => m.id === modelId)?.name}</div>
           </div>
           <div className="ob-row center">
-            <button className="btn ghost" onClick={() => setStep("test")}>← Otra</button>
+            <button className="btn ghost" onClick={() => setStep("test")}>← Volver</button>
             <button className="btn" onClick={finish}>Entrar a Mundo Cazador →</button>
           </div>
         </>

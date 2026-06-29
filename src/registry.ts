@@ -8,6 +8,7 @@ export type EnemyEntry = {
   hp: number;
   maxHp: number;
   alive: boolean;
+  name?: string; // para el nameplate de targeting
 };
 
 export const registry = {

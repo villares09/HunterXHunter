@@ -28,9 +28,9 @@ export const OSO: EnemyDef = {
   name: "Oso",
   url: "/models/oso.glb",
   hp: 50,
-  faceFlip: false,   // si el oso camina de espaldas, poné true
-  targetHeight: 1.7, // bestia, un toque más alto que gon (1.35)
-  feetY: 0,
+  faceFlip: false,
+  targetHeight: 1.7,
+  feetY: 0,      // <-- era 0. Levanta el modelo sobre la superficie, igual que FEET_Y en el player
   anim: {
     idle: "idle",
     walk: "walk",

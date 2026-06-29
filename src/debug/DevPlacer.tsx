@@ -16,7 +16,6 @@ export function DevPlacer() {
           const x = Math.round(e.point.x * 10) / 10;
           const z = Math.round(e.point.z * 10) / 10;
           const str = `[${x}, 0, ${z}]`;
-          console.log("PLACE", str);
           navigator.clipboard?.writeText(str);
           setMarks((m) => [...m, [x, 0.5, z]]);
         }}

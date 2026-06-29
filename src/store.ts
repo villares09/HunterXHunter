@@ -16,16 +16,24 @@ export type Character = {
   derived: Record<string, number>;
 };
 
-export type CharInit = { maxHp: number; maxAura: number; baseDmg: number; passiveDmg: number };
+export type CharInit = {
+  maxHp: number; maxAura: number; baseDmg: number; passiveDmg: number;
+  maxStamina: number; // NUEVO: derivado de Estamina en derive()
+};
 
 const AURA_REGEN = 14;
 const DEATH_ANIM_TIME = 2.2; // "Stunned to floor" dura 2.17s -> recién ahí mostramos el modal
 
+// === ESTAMINA (Bloque 1) ===
+const STAMINA_REGEN_FACTOR = 0.4;   // regen/seg = maxStamina * 0.4  (~2.5s de 0 a full)
+const STAMINA_REGEN_DELAY = 3;    // seg sin regen tras gastar (respiro Souls)
+const RUN_DRAIN_EXTRA = 1;          // correr gasta (regen + 1)/seg -> drena 1/seg neto
+
 type State = {
   phase: "select" | "onboarding" | "playing";
   dead: boolean;
-  deathModal: boolean; // NUEVO: gatea el modal, se prende al terminar la anim de muerte
-  deathT: number;      // NUEVO: countdown de la anim de muerte
+  deathModal: boolean;
+  deathT: number;
   invuln: number;
   character: Character | null;
 
@@ -38,6 +46,11 @@ type State = {
   baseDmg: number; passiveDmg: number;
   cooldowns: Record<string, number>;
   dmgMult: number; buffT: number;
+
+  // estamina
+  stamina: number; maxStamina: number;
+  staminaDelay: number; // countdown del delay de regen
+  running: boolean;     // lo refleja el Player para que el tick sepa si drenar
 
   setCharacter: (c: Character, init: CharInit) => void;
   setPhase: (p: "select" | "onboarding" | "playing") => void;
@@ -53,6 +66,11 @@ type State = {
   buff: (mult: number, dur: number) => void;
   tick: (dt: number) => void;
   revive: () => void;
+
+  // estamina
+  spendStamina: (n: number) => boolean;
+  hasStamina: (n: number) => boolean;
+  setRunning: (v: boolean) => void;
 };
 
 let _fid = 1;
@@ -74,6 +92,10 @@ export const useRPG = create<State>((set, get) => ({
   cooldowns: {},
   dmgMult: 1, buffT: 0,
 
+  stamina: 100, maxStamina: 100,
+  staminaDelay: 0,
+  running: false,
+
   setCharacter: (c, init) =>
     set({
       character: c,
@@ -81,6 +103,7 @@ export const useRPG = create<State>((set, get) => ({
       maxHp: init.maxHp, hp: init.maxHp,
       maxAura: init.maxAura, aura: init.maxAura,
       baseDmg: init.baseDmg, passiveDmg: init.passiveDmg,
+      maxStamina: init.maxStamina, stamina: init.maxStamina, staminaDelay: 0, running: false,
       kills: 0, combo: 0, dead: false, deathModal: false, deathT: 0, invuln: 1.5,
     }),
   setPhase: (p) => set({ phase: p }),
@@ -101,9 +124,22 @@ export const useRPG = create<State>((set, get) => ({
   addKill: () => set((s) => ({ kills: s.kills + 1 })),
   spendAura: (n) => { if (get().aura < n) return false; set({ aura: get().aura - n }); return true; },
   ready: (id) => (get().cooldowns[id] ?? 0) <= 0,
-  setCooldown: (id, cd) => set((s) => ({ cooldowns: { ...s.cooldowns, [id]: cd } })),
+  setCooldown: (id, cd) => {
+    console.log("[setCD]", id, "=>", cd, "| stack:", new Error().stack?.split("\n")[2]?.trim()); // TEMPORAL
+    set((s) => ({ cooldowns: { ...s.cooldowns, [id]: cd } }));
+  },
   buff: (mult, dur) => set({ dmgMult: mult, buffT: dur }),
-  revive: () => set({ hp: get().maxHp, dead: false, deathModal: false, deathT: 0, invuln: 2 }),
+  revive: () => set({ hp: get().maxHp, stamina: get().maxStamina, staminaDelay: 0, dead: false, deathModal: false, deathT: 0, invuln: 2 }),
+
+  // === ESTAMINA ===
+  hasStamina: (n) => get().stamina >= n,
+  spendStamina: (n) => {
+    const s = get();
+    if (s.stamina < n) return false;
+    set({ stamina: s.stamina - n, staminaDelay: STAMINA_REGEN_DELAY });
+    return true;
+  },
+  setRunning: (v) => set({ running: v }),
 
   tick: (dt) => {
     const s = get();
@@ -111,7 +147,6 @@ export const useRPG = create<State>((set, get) => ({
     next.hitStop = Math.max(0, s.hitStop - dt);
     if (s.invuln > 0) next.invuln = Math.max(0, s.invuln - dt);
 
-    // muerte: dejamos correr la anim de caída y recién al terminar prendemos el modal
     if (s.dead && s.deathT > 0) {
       const dt2 = Math.max(0, s.deathT - dt);
       next.deathT = dt2;
@@ -127,10 +162,32 @@ export const useRPG = create<State>((set, get) => ({
         .filter((f) => f.life > 0);
     }
     if (s.aura < s.maxAura) next.aura = Math.min(s.maxAura, s.aura + AURA_REGEN * dt);
-    const cds: Record<string, number> = {};
-    let changed = false;
-    for (const k in s.cooldowns) { const v = s.cooldowns[k] - dt; if (v > 0) cds[k] = v; else changed = true; }
-    if (changed || Object.keys(cds).length !== Object.keys(s.cooldowns).length) next.cooldowns = cds;
+
+    // --- ESTAMINA: delay -> regen; correr drena (regen + 1)/seg ---
+    const regenPerSec = s.maxStamina * STAMINA_REGEN_FACTOR;
+    let stamina = s.stamina;
+    let delay = s.staminaDelay > 0 ? Math.max(0, s.staminaDelay - dt) : 0;
+
+    if (s.running) {
+      const drain = (regenPerSec + RUN_DRAIN_EXTRA) * dt;
+      const regen = delay <= 0 ? regenPerSec * dt : 0;
+      stamina = Math.max(0, stamina - drain + regen);
+    } else if (delay <= 0 && stamina < s.maxStamina) {
+      stamina = Math.min(s.maxStamina, stamina + regenPerSec * dt);
+    }
+    next.stamina = stamina;
+    next.staminaDelay = delay;
+
+    // --- COOLDOWNS: bajar cada uno por dt; los que llegan a 0 se descartan ---
+    if (Object.keys(s.cooldowns).length > 0) {
+      const cds: Record<string, number> = {};
+      for (const k in s.cooldowns) {
+        const v = s.cooldowns[k] - dt;
+        if (v > 0) cds[k] = v;
+      }
+      next.cooldowns = cds;
+    }
+
     if (s.buffT > 0) { const bt = Math.max(0, s.buffT - dt); next.buffT = bt; if (bt === 0) next.dmgMult = 1; }
     set(next);
   },

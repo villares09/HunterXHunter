@@ -1,37 +1,110 @@
-import Ecctrl from "ecctrl";
-import { useFrame } from "@react-three/fiber";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { useFrame, useThree } from "@react-three/fiber";
+import { OrbitControls, Text } from "@react-three/drei";
+import { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import * as THREE from "three";
-import { CharacterModel } from "./CharacterModel";
+import { CharacterModel, FEET_Y } from "./CharacterModel";
 import { registry, setPlayer } from "../registry";
 import { useRPG } from "../store";
 import { hitInRadius } from "../damage";
-import { useSkillByCode } from "../skills";
+import { useComboByCode, COMBO_SKILLS } from "../skills";
 import { startMove } from "../combat";
 import { MOVES, PUNCH_COMBO, type Move } from "../data/moves";
-import { heightAt } from "./Terrain";
+import { heightAt } from "../data/terrainStore";
+import {
+  move, requestMove, stopMove, auto, startAutoAttack, stopAutoAttack,
+  jump, startJump, GRAVITY, pendingCombo,
+} from "./Movement";
+import { isWalkable, clampWalkable } from "./walkable";
+import { useTarget, targetPos, pickEnemy, cycleTarget } from "../targeting";
 
 const _tmp = new THREE.Vector3();
 const CHAIN_WINDOW = 1.2;
 
+const SPAWN: [number, number] = [95, -32];
+
+const WALK_SPEED = 3.4;
+const RUN_SPEED = 6.2;
+
+const ATTACK_RANGE = 1.8;
+const CHASE_RANGE = 2.2;
+const NPC_TALK_DIST = 2.5;
+
+const BASIC_STAMINA_FRAC = 1 / 8;
+
+const BASIC_POOL: Move[] = [MOVES.jab, MOVES.cross, MOVES.hook, MOVES.kick, MOVES.elbow];
+
+// costo de estamina de un combo segun su skill (redondeado, = lo que muestra el slot)
+function comboCostFor(m: Move): number {
+  const sk = COMBO_SKILLS.find((s) => s.moveId === m.id);
+  const denom = sk?.staminaDenom ?? 4;
+  return Math.round(useRPG.getState().maxStamina / denom);
+}
+
+function lerpAngle(a: number, b: number, t: number): number {
+  let d = b - a;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return a + d * t;
+}
+
+function raymarchGround(ray: THREE.Ray): THREE.Vector3 | null {
+  const o = ray.origin, d = ray.direction;
+  const STEP = 2, MAX_T = 4000;
+  let prevT = 0;
+  let prevDiff = o.y - heightAt(o.x, o.z);
+  for (let t = STEP; t < MAX_T; t += STEP) {
+    const x = o.x + d.x * t, y = o.y + d.y * t, z = o.z + d.z * t;
+    const diff = y - heightAt(x, z);
+    if (diff <= 0 && prevDiff > 0) {
+      let a = prevT, b = t;
+      for (let k = 0; k < 12; k++) {
+        const mid = (a + b) / 2;
+        const mx = o.x + d.x * mid, my = o.y + d.y * mid, mz = o.z + d.z * mid;
+        if (my - heightAt(mx, mz) > 0) a = mid; else b = mid;
+      }
+      const fx = o.x + d.x * b, fz = o.z + d.z * b;
+      return new THREE.Vector3(fx, heightAt(fx, fz), fz);
+    }
+    prevT = t; prevDiff = diff;
+  }
+  return null;
+}
+
 export function Player() {
   const ref = useRef<THREE.Group>(null);
+  const facing = useRef(0);
   const nextAtk = useRef(0);
   const pending = useRef<{ at: number; move: Move }[]>([]);
 
   const punchStep = useRef(0);
   const lastInputAt = useRef(0);
   const lastToken = useRef<"P" | "K" | "">("");
-  // === SPAWN === zona de pasto firme al lado de la casa (sacado de ?edit)
-  const SPAWN: [number, number] = [95, -32];
-  // protección: el piso nunca puede estar bajo el agua. +3 de margen para caer limpio.
-  const groundY = heightAt(SPAWN[0], SPAWN[1]);
-  const spawnY = Math.max(groundY, 1) + 3;
+
+  const { camera, gl } = useThree();
+  const raycaster = useMemo(() => new THREE.Raycaster(), []);
+
+  const spawnY = heightAt(SPAWN[0], SPAWN[1]) - FEET_Y;
 
   useEffect(() => {
     setPlayer(ref.current);
     return () => setPlayer(null);
   }, []);
+
+  const fireMove = (m: Move, staminaCost?: number): boolean => {
+    const now = performance.now();
+    const S = useRPG.getState();
+    if (S.dead || now < nextAtk.current || S.hitStop > 0 || !registry.player) return false;
+    const cost = staminaCost ?? S.maxStamina * BASIC_STAMINA_FRAC;
+    if (!S.hasStamina(cost)) return false;
+    S.spendStamina(cost);
+    lastInputAt.current = now;
+    nextAtk.current = now + (m.swing + m.cooldown) * 1000;
+    startMove(m);
+    const frames = Array.isArray(m.hitFrame) ? m.hitFrame : [m.hitFrame];
+    for (const hf of frames) pending.current.push({ at: now + hf * 1000, move: m });
+    return true;
+  };
 
   useEffect(() => {
     const resolveMove = (token: "P" | "K", now: number): Move => {
@@ -56,54 +129,217 @@ export function Player() {
 
     const doMove = (token: "P" | "K") => {
       const now = performance.now();
-      const S = useRPG.getState();
-      if (S.dead || now < nextAtk.current || S.hitStop > 0 || !registry.player) return;
-      const move = resolveMove(token, now);
-      lastInputAt.current = now;
-      nextAtk.current = now + (move.swing + move.cooldown) * 1000;
-      startMove(move);
-      const frames = Array.isArray(move.hitFrame) ? move.hitFrame : [move.hitFrame];
-      for (const hf of frames) pending.current.push({ at: now + hf * 1000, move });
+      fireMove(resolveMove(token, now));
     };
 
-    const onPointer = (e: PointerEvent) => {
-      if (e.button === 0) doMove("P");
-      else if (e.button === 2) doMove("K");
-    };
-    const onContext = (e: MouseEvent) => e.preventDefault();
+    const onCanvasDown = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      if (useRPG.getState().dead || !registry.player) return;
 
-    const onMouseDownCapture = (e: MouseEvent) => {
-      if (e.button === 1) { e.preventDefault(); return; }
-      e.stopPropagation();
+      const rect = gl.domElement.getBoundingClientRect();
+      const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      const ny = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(new THREE.Vector2(nx, ny), camera);
+
+      const hit = pickEnemy(raycaster);
+      if (hit) {
+        const cur = useTarget.getState().target;
+        const already = cur && cur.kind === hit.kind && cur.id === hit.id;
+        if (!already) {
+          useTarget.getState().setTarget(hit);
+        } else {
+          if (hit.kind === "enemy") {
+            startAutoAttack(hit.id);
+          } else {
+            const tp = targetPos();
+            if (tp) {
+              registry.player.getWorldPosition(_tmp);
+              const [cx, cz] = clampWalkable(_tmp.x, _tmp.z, tp.x, tp.z);
+              requestMove(cx, cz, { stopDist: NPC_TALK_DIST });
+            }
+          }
+        }
+        return;
+      }
+
+      stopAutoAttack();
+      useTarget.getState().clear();
+      const g = raymarchGround(raycaster.ray);
+      if (!g) return;
+      registry.player.getWorldPosition(_tmp);
+      const [cx, cz] = clampWalkable(_tmp.x, _tmp.z, g.x, g.z);
+      requestMove(cx, cz);
     };
 
     const onKey = (e: KeyboardEvent) => {
+      if (e.code === "Tab") {
+        e.preventDefault();
+        if (e.repeat) return;
+        cycleTarget();
+        return;
+      }
+      if (e.code === "Escape") {
+        stopAutoAttack();
+        useTarget.getState().clear();
+        return;
+      }
+      if (e.code === "Space") {
+        if (e.repeat) return;
+        startJump();
+        return;
+      }
+      if (e.code === "ShiftLeft" || e.code === "ShiftRight") {
+        if (e.repeat) return;
+        const S = useRPG.getState();
+        if (!move.running && S.stamina <= 0) return;
+        move.running = !move.running;
+        if (move.dest) move.locomotion = move.running ? "run" : "walk";
+        return;
+      }
+
       if (e.code === "KeyJ") { doMove("P"); return; }
       if (e.code === "KeyK") { doMove("K"); return; }
       if (useRPG.getState().dead) return;
-      if (e.code.startsWith("Digit") && registry.player) {
-        registry.player.getWorldPosition(_tmp);
-        useSkillByCode(e.code, _tmp);
+      if (e.code.startsWith("Digit")) {
+        useComboByCode(e.code);
       }
     };
 
-    window.addEventListener("pointerdown", onPointer);
-    window.addEventListener("contextmenu", onContext);
-    window.addEventListener("mousedown", onMouseDownCapture, true);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("pointerdown", onPointer);
-      window.removeEventListener("contextmenu", onContext);
-      window.removeEventListener("mousedown", onMouseDownCapture, true);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, []);
+    const onContext = (e: MouseEvent) => e.preventDefault();
 
-  useFrame(() => {
+    gl.domElement.addEventListener("pointerdown", onCanvasDown);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("contextmenu", onContext);
+    return () => {
+      gl.domElement.removeEventListener("pointerdown", onCanvasDown);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("contextmenu", onContext);
+    };
+  }, [camera, gl, raycaster]);
+
+  useFrame((_, dt) => {
+    const root = ref.current;
+    const S = useRPG.getState();
+    let movingNow = false;
+
+    // ===== COMBO PENDIENTE (barra / teclas 1-3) =====
+    if (pendingCombo.moveId && root) {
+      const m = (MOVES as Record<string, Move>)[pendingCombo.moveId];
+      pendingCombo.moveId = null;
+      if (m) {
+        fireMove(m, comboCostFor(m));
+        const tp = targetPos();
+        if (tp) {
+          const dx = tp.x - root.position.x, dz = tp.z - root.position.z;
+          if (Math.hypot(dx, dz) > 0.01) {
+            facing.current = Math.atan2(dx, dz);
+            root.rotation.y = facing.current;
+          }
+        }
+      }
+    }
+
+    // ===== AUTO-ATTACK =====
+    if (auto.active && root) {
+      const en = auto.enemyId != null ? registry.enemies.get(auto.enemyId) : null;
+      if (!en || !en.alive) {
+        stopAutoAttack();
+      } else if (S.stamina < S.maxStamina * BASIC_STAMINA_FRAC && nextAtk.current < performance.now()) {
+        stopAutoAttack();
+        S.addFloater({ pos: [root.position.x, root.position.y + 2.4, root.position.z], text: "¡SIN AIRE!", kind: "info" });
+      } else {
+        en.obj.getWorldPosition(_tmp);
+        const dx = _tmp.x - root.position.x, dz = _tmp.z - root.position.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist > CHASE_RANGE) {
+          const inv = 1 / dist;
+          const tx = _tmp.x - dx * inv * ATTACK_RANGE;
+          const tz = _tmp.z - dz * inv * ATTACK_RANGE;
+          const [cx, cz] = clampWalkable(root.position.x, root.position.z, tx, tz);
+          requestMove(cx, cz, { stopDist: 0.3 });
+        } else {
+          if (move.dest) stopMove();
+          const ang = Math.atan2(dx, dz);
+          facing.current = lerpAngle(facing.current, ang, 1 - Math.pow(0.0005, dt));
+          root.rotation.y = facing.current;
+          if (performance.now() >= nextAtk.current) {
+            fireMove(BASIC_POOL[(Math.random() * BASIC_POOL.length) | 0]);
+          }
+        }
+      }
+    }
+
+    // ===== MOVIMIENTO =====
+    let groundY = root ? heightAt(root.position.x, root.position.z) - FEET_Y : 0;
+
+    if (root && move.dest) {
+      const px = root.position.x, pz = root.position.z;
+      let dx = move.dest.x - px, dz = move.dest.z - pz;
+      const dist = Math.hypot(dx, dz);
+
+      if (dist <= move.stopDist) {
+        root.position.x = move.dest.x;
+        root.position.z = move.dest.z;
+        groundY = heightAt(move.dest.x, move.dest.z) - FEET_Y;
+        const cb = move.onArrive;
+        stopMove();
+        cb?.();
+      } else {
+        const inv = 1 / dist; dx *= inv; dz *= inv;
+        const canRun = move.running && S.stamina > 0;
+        const baseSpeed = canRun ? RUN_SPEED : WALK_SPEED;
+        const SLOW_RADIUS = 2.5;
+        const speedFactor = dist < SLOW_RADIUS ? Math.max(0.25, dist / SLOW_RADIUS) : 1;
+        const speed = baseSpeed * speedFactor;
+        const step = Math.min(speed * dt, dist);
+        const nx = px + dx * step, nz = pz + dz * step;
+
+        if (!isWalkable(nx, nz)) {
+          stopMove();
+        } else {
+          root.position.x = nx;
+          root.position.z = nz;
+          groundY = heightAt(nx, nz) - FEET_Y;
+          move.locomotion = canRun ? "run" : "walk";
+          movingNow = canRun;
+          const targetAng = Math.atan2(dx, dz);
+          facing.current = lerpAngle(facing.current, targetAng, 1 - Math.pow(0.0015, dt));
+          root.rotation.y = facing.current;
+        }
+      }
+    } else {
+      if (move.locomotion !== "idle") move.locomotion = "idle";
+      const tp = targetPos();
+      if (tp && root && !auto.active) {
+        const dx = tp.x - root.position.x, dz = tp.z - root.position.z;
+        if (Math.hypot(dx, dz) > 0.01) {
+          const targetAng = Math.atan2(dx, dz);
+          facing.current = lerpAngle(facing.current, targetAng, 1 - Math.pow(0.0015, dt));
+          root.rotation.y = facing.current;
+        }
+      }
+    }
+
+    // ===== SALTO: integra el arco y lo suma a la Y =====
+    if (root) {
+      if (jump.active) {
+        jump.vy -= GRAVITY * dt;
+        jump.offset += jump.vy * dt;
+        if (jump.offset <= 0) { jump.offset = 0; jump.active = false; jump.vy = 0; }
+      }
+      root.position.y = groundY + jump.offset;
+    }
+
+    if (S.running !== movingNow) S.setRunning(movingNow);
+    if (move.running && S.stamina <= 0) {
+      move.running = false;
+      if (move.dest) move.locomotion = "walk";
+    }
+
+    // ===== golpes pendientes (daño) =====
     if (!pending.current.length || !registry.player) return;
     const now = performance.now();
     registry.player.getWorldPosition(_tmp);
-    const S = useRPG.getState();
     pending.current = pending.current.filter((p) => {
       if (now < p.at) return true;
       const dmg = S.baseDmg * p.move.dmg + S.combo * 1.0;
@@ -118,22 +354,133 @@ export function Player() {
   });
 
   return (
-    <Ecctrl
-      animated
-      position={[SPAWN[0], spawnY, SPAWN[1]]}
-      maxVelLimit={4}
-      sprintMult={1.8}
-      jumpVel={4}
-      camInitDis={-5}
-      camMaxDis={-10}
-      camMinDis={-1.5}
-      autoBalance={true}
-      autoBalanceSpringK={0.3}
-      autoBalanceDampingC={0.03}
-    >
-      <group ref={ref}>
+    <>
+      <group ref={ref} position={[SPAWN[0], spawnY, SPAWN[1]]}>
         <CharacterModel />
       </group>
-    </Ecctrl>
+      <DestMarker />
+      <TargetIndicator />
+      <FollowCam targetRef={ref} />
+    </>
+  );
+}
+
+function DestMarker() {
+  const grp = useRef<THREE.Group>(null);
+  useFrame((state) => {
+    const g = grp.current;
+    if (!g) return;
+    if (move.dest) {
+      g.visible = true;
+      g.position.set(move.dest.x, heightAt(move.dest.x, move.dest.z) + 0.06, move.dest.z);
+      const p = 1 + Math.sin(state.clock.elapsedTime * 6) * 0.18;
+      g.scale.setScalar(p);
+    } else {
+      g.visible = false;
+    }
+  });
+  return (
+    <group ref={grp} rotation={[-Math.PI / 2, 0, 0]} visible={false}>
+      <mesh>
+        <ringGeometry args={[0.38, 0.52, 40]} />
+        <meshBasicMaterial color="#5fe0ff" transparent opacity={0.9} depthTest={false} side={THREE.DoubleSide} />
+      </mesh>
+      <mesh>
+        <circleGeometry args={[0.12, 20]} />
+        <meshBasicMaterial color="#eafcff" transparent opacity={0.85} depthTest={false} side={THREE.DoubleSide} />
+      </mesh>
+    </group>
+  );
+}
+
+function TargetIndicator() {
+  const target = useTarget((s) => s.target);
+  const ring = useRef<THREE.Group>(null);
+  const plate = useRef<THREE.Group>(null);
+  const { camera } = useThree();
+
+  useFrame((state) => {
+    const pos = targetPos();
+    if (!target || !pos) {
+      if (ring.current) ring.current.visible = false;
+      if (plate.current) plate.current.visible = false;
+      if (target && !pos) { useTarget.getState().clear(); stopAutoAttack(); }
+      return;
+    }
+    if (ring.current) {
+      ring.current.visible = true;
+      ring.current.position.set(pos.x, heightAt(pos.x, pos.z) + 0.07, pos.z);
+      const p = 1 + Math.sin(state.clock.elapsedTime * 5) * 0.12;
+      ring.current.scale.setScalar(p);
+    }
+    if (plate.current) {
+      plate.current.visible = true;
+      plate.current.position.set(pos.x, pos.y + 2.5, pos.z);
+      plate.current.quaternion.copy(camera.quaternion);
+    }
+  });
+
+  return (
+    <>
+      <group ref={ring} rotation={[-Math.PI / 2, 0, 0]} visible={false}>
+        <mesh>
+          <ringGeometry args={[0.6, 0.78, 44]} />
+          <meshBasicMaterial color="#ff5a5a" transparent opacity={0.95} depthTest={false} side={THREE.DoubleSide} />
+        </mesh>
+      </group>
+      <group ref={plate} visible={false}>
+        <Text
+          fontSize={0.4}
+          color="#ffe08a"
+          anchorX="center"
+          anchorY="middle"
+          outlineWidth={0.022}
+          outlineColor="#1a0d00"
+          material-depthTest={false}
+          renderOrder={999}
+        >
+          {target?.name ?? ""}
+        </Text>
+      </group>
+    </>
+  );
+}
+
+function FollowCam({ targetRef }: { targetRef: React.RefObject<THREE.Group | null> }) {
+  const controls = useRef<OrbitControlsImpl>(null);
+  const prev = useRef(new THREE.Vector3());
+  const init = useRef(false);
+
+  useFrame(() => {
+    const t = targetRef.current, c = controls.current;
+    if (!t || !c) return;
+    const p = t.position;
+    if (!init.current) {
+      prev.current.copy(p);
+      c.target.set(p.x, p.y + 1.2, p.z);
+      c.object.position.set(p.x, p.y + 6, p.z + 9);
+      c.update();
+      init.current = true;
+      return;
+    }
+    const dx = p.x - prev.current.x, dy = p.y - prev.current.y, dz = p.z - prev.current.z;
+    c.target.x += dx; c.target.y += dy; c.target.z += dz;
+    c.object.position.x += dx; c.object.position.y += dy; c.object.position.z += dz;
+    prev.current.copy(p);
+    c.update();
+  });
+
+  return (
+    <OrbitControls
+      ref={controls}
+      makeDefault
+      enablePan={false}
+      enableDamping
+      dampingFactor={0.12}
+      minDistance={3}
+      maxDistance={16}
+      maxPolarAngle={Math.PI * 0.49}
+      mouseButtons={{ LEFT: undefined, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE }}
+    />
   );
 }

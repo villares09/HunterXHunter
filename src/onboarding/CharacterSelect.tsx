@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { loadRoster, deleteCharacter } from "../roster";
 import { computeInit, type SavedCharacter } from "../character";
-import { CATEGORIES } from "../data/quiz";
 import { MODELS } from "../data/models";
 import { useRPG } from "../store";
 import "./onboarding.css";
@@ -11,7 +10,7 @@ export function CharacterSelect() {
   const setPhase = useRPG((s) => s.setPhase);
   const [list, setList] = useState<SavedCharacter[]>(() => loadRoster());
 
-  const play = (c: SavedCharacter) => setCharacter(c, computeInit(c.derived, c.category));
+  const play = (c: SavedCharacter) => setCharacter(c, computeInit(c.derived, c.category, c.stats));
   const remove = (id: string) => { deleteCharacter(id); setList(loadRoster()); };
 
   return (
@@ -26,14 +25,13 @@ export function CharacterSelect() {
         {list.length === 0 && <p className="hint">Todavía no tenés personajes.</p>}
         <div className="roster">
           {list.map((c) => {
-            const cat = CATEGORIES.find((x) => x.id === c.category);
             const model = MODELS.find((m) => m.id === c.modelId);
             return (
               <div className="rchar" key={c.id}>
                 <div className="ri">
                   <div className="rn">{c.name}</div>
                   <div className="rd">
-                    {cat && <span style={{ color: cat.color }}>{cat.name}</span>} · {model?.name ?? c.modelId} · {c.origin === "bosque" ? "Bosque" : "Ciudad"}
+                    <span style={{ color: "var(--gold)", opacity: 0.8 }}>Nen sin revelar</span> · {model?.name ?? c.modelId} · {c.origin === "bosque" ? "Bosque" : "Ciudad"}
                   </div>
                   <div className="rs">Vida {c.derived["Vida Total"]} · Daño {c.derived["Daño"]} · Nen {c.derived.Nen}</div>
                 </div>

@@ -1,10 +1,10 @@
 import { Canvas } from "@react-three/fiber";
-import { KeyboardControls, useProgress } from "@react-three/drei";
+import { useProgress } from "@react-three/drei";
 import { Physics } from "@react-three/rapier";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { World } from "./World";
 import { Player } from "./Player";
-// import { Enemies } from "./Enemies";
+import { Enemies } from "./Enemies";
 import { SceneTick, Floaters } from "./Systems";
 import { DevPlacer } from "../debug/DevPlacer";
 import { MapaGuiaFondo } from "../debug/MapaGuia";
@@ -21,9 +21,6 @@ import { ForestHUD } from "../editor/forestHUD";
 import { RockScene } from "./RockScene";
 import { RockHUD } from "../editor/rockHUD";
 
-/* Espera a que (a) termine de cargar todo (useProgress) y (b) pasen unos frames
-   para que Rapier arme el HeightfieldCollider. Recién entonces renderiza a sus hijos
-   (el Player), así no aparece antes de que exista el piso y se caiga. */
 function ReadyGate({ children }: { children: React.ReactNode }) {
   const { active, progress } = useProgress();
   const [ready, setReady] = useState(false);
@@ -31,7 +28,6 @@ function ReadyGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (active || progress < 100) return;
-    // todo cargó: esperar ~30 frames para que el collider del terreno exista
     let raf = 0;
     const wait = () => {
       tries.current++;
@@ -56,23 +52,15 @@ export function Game() {
   const topView = sculptMode || edit || drawMode || pathMode || forestMode || rocksMode;
   const playMode = !topView;
 
-  const map = useMemo(
-    () => [
-      { name: "forward", keys: ["ArrowUp", "KeyW"] },
-      { name: "backward", keys: ["ArrowDown", "KeyS"] },
-      { name: "leftward", keys: ["ArrowLeft", "KeyA"] },
-      { name: "rightward", keys: ["ArrowRight", "KeyD"] },
-      { name: "jump", keys: ["Space"] },
-      { name: "run", keys: ["ShiftLeft", "ShiftRight"] },
-    ],
-    []
+  const camPos = useMemo<[number, number, number]>(
+    () => (drawMode || pathMode ? [0, 320, 0.1] : topView ? [0, 180, 230] : [0, 6, 14]),
+    [drawMode, pathMode, topView]
   );
 
   return (
     <>
-      <Canvas shadows camera={{ position: drawMode || pathMode ? [0, 320, 0.1] : topView ? [0, 180, 230] : [0, 6, 14], fov: 50 }}>
+      <Canvas shadows camera={{ position: camPos, fov: 50 }}>
         <color attach="background" args={["#bcdcec"]} />
-        {/* fog SOLO en modo juego: en los editores tapaba lo que estás editando */}
         {playMode && <fogExp2 attach="fog" args={["#bcdcec", 0.008]} />}
         <Suspense fallback={null}>
           {drawMode ? (
@@ -88,18 +76,15 @@ export function Game() {
           ) : edit ? (
             <WorldEditor />
           ) : (
-            <KeyboardControls map={map}>
-              <Physics timeStep={1 / 60}>
-                <World />
-                <DevPlacer />
-                <MapaGuiaFondo />
-                {/* el Player aparece SOLO cuando el mundo y el piso están listos */}
-                <ReadyGate>
-                  <Player />
-                </ReadyGate>
-                {/* <Enemies count={6} /> */}
-              </Physics>
-            </KeyboardControls>
+            <Physics timeStep={1 / 60}>
+              <World />
+              <DevPlacer />
+              <MapaGuiaFondo />
+              <ReadyGate>
+                <Player />
+              </ReadyGate>
+              <Enemies count={3} />
+            </Physics>
           )}
           {playMode && (
             <>
@@ -110,7 +95,6 @@ export function Game() {
         </Suspense>
       </Canvas>
 
-      {/* overlay de carga (DOM, fuera del Canvas) */}
       {playMode && <LoadingOverlay />}
 
       {edit && <EditorHUD />}
@@ -123,7 +107,6 @@ export function Game() {
   );
 }
 
-/* pantalla de carga simple que se desvanece al terminar */
 function LoadingOverlay() {
   const { active, progress } = useProgress();
   const [hidden, setHidden] = useState(false);

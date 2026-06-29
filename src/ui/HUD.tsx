@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { useRPG } from "../store";
 import { Minimap } from "./Minimap";
-import { SKILLS } from "../skills";
-import { CATEGORIES } from "../data/quiz";
+import { COMBO_SKILLS, comboCost, useComboSkill } from "../skills";
 import { DialogueRunner } from "./DialogueRunner";
 
 function ShakeListener() {
@@ -20,18 +19,25 @@ function ShakeListener() {
 
 function SkillBar() {
   const cooldowns = useRPG((s) => s.cooldowns);
-  const aura = useRPG((s) => s.aura);
+  const stamina = useRPG((s) => s.stamina);
   return (
     <div className="skillbar">
-      {SKILLS.map((sk) => {
+      {COMBO_SKILLS.map((sk) => {
         const cd = cooldowns[sk.id] ?? 0;
-        const off = cd > 0 || aura < sk.cost;
+        const cost = comboCost(sk);
+        const off = cd > 0 || stamina < cost;
         return (
-          <div key={sk.id} className={"slot" + (off ? " off" : "")} title={sk.desc}>
+          <div
+            key={sk.id}
+            className={"slot" + (off ? " off" : "")}
+            title={sk.desc}
+            style={{ pointerEvents: "auto", cursor: "pointer" }}
+            onClick={() => useComboSkill(sk)}
+          >
             <span className="key">{sk.keyLabel}</span>
             <span className="ico">{sk.icon}</span>
             <span className="nm">{sk.name}</span>
-            <span className="cost">{sk.cost}</span>
+            <span className="cost">{Math.round(cost)}</span>
             {cd > 0 && <span className="cd">{cd.toFixed(1)}</span>}
           </div>
         );
@@ -62,14 +68,13 @@ function DeathOverlay() {
 export function HUD() {
   const hp = useRPG((s) => s.hp);
   const maxHp = useRPG((s) => s.maxHp);
-  const aura = useRPG((s) => s.aura);
-  const maxAura = useRPG((s) => s.maxAura);
-  const combo = useRPG((s) => s.combo);
   const kills = useRPG((s) => s.kills);
   const buffT = useRPG((s) => s.buffT);
   const character = useRPG((s) => s.character);
-  const cat = CATEGORIES.find((c) => c.id === character?.category);
   const [story, setStory] = useState(false);
+  const stamina = useRPG((s) => s.stamina);
+  const maxStamina = useRPG((s) => s.maxStamina);
+  const combo = useRPG((s) => s.combo);
 
   return (
     <div id="hud">
@@ -78,11 +83,11 @@ export function HUD() {
       {story && <DialogueRunner onClose={() => setStory(false)} />}
 
       <div className="panel player-panel">
-        <div className="name">{character?.name ?? "Cazador"} {cat && <span className="catTag" style={{ color: cat.color }}>{cat.name}</span>} {buffT > 0 && <span className="buff">FURIA</span>}</div>
+        <div className="name">{character?.name ?? "Cazador"} {buffT > 0 && <span className="buff">FURIA</span>}</div>
         <div className="bar hp"><i style={{ width: `${(hp / maxHp) * 100}%` }} /></div>
         <div className="lab"><span>VIDA</span><span>{Math.ceil(hp)}/{maxHp}</span></div>
-        <div className="bar aura"><i style={{ width: `${(aura / maxAura) * 100}%` }} /></div>
-        <div className="lab"><span>AURA</span><span>{Math.round(aura)}/{maxAura}</span></div>
+        <div className="bar stamina"><i style={{ width: `${maxStamina > 0 ? (stamina / maxStamina) * 100 : 0}%` }} /></div>
+        <div className="lab"><span>ESTAMINA</span><span>{Math.round(stamina)}/{maxStamina}</span></div>
         <div className="lab" style={{ marginTop: 6 }}><span>BESTIAS</span><span>{kills}</span></div>
       </div>
 
@@ -96,7 +101,7 @@ export function HUD() {
       <SkillBar />
 
       <div className="controls">
-        <b>WASD</b> mover · <b>ESPACIO</b> saltar · <b>SHIFT</b> correr · <b>click / J</b> atacar · <b>1·2·3</b> skills · <b>mouse</b> cámara
+        <b>click</b> mover/atacar · <b>doble click</b> auto-ataque · <b>TAB</b> objetivo · <b>SHIFT</b> correr · <b>ESPACIO</b> saltar · <b>1·2·3</b> combos · <b>mouse der</b> cámara
       </div>
     </div>
   );

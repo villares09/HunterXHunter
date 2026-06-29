@@ -6,14 +6,29 @@ import { useRPG } from "../store";
 import { EnemyModel } from "./EnemyModel";
 import { getEnemy } from "../data/enemies";
 import { randomLandPoint } from "../data/island";
+import { heightAt } from "../data/terrainStore";
 
 const _p = new THREE.Vector3();
 const _self = new THREE.Vector3();
 
 const DEATH_HOLD = 3.0; // = duración real del clip death del oso
 
+// spawn del player, para no aparecer encima de él
+const PLAYER_SPAWN: [number, number] = [95, -32];
+const MIN_DIST_FROM_PLAYER = 18;
+
+/* devuelve un punto sobre la isla, apoyado al terreno y lejos del spawn del player */
 function randomSpawn(): [number, number, number] {
-  return randomLandPoint(0.3, 0.82); // siempre sobre la isla
+  for (let i = 0; i < 20; i++) {
+    const [x, , z] = randomLandPoint(0.3, 0.82);
+    const dx = x - PLAYER_SPAWN[0], dz = z - PLAYER_SPAWN[1];
+    if (Math.hypot(dx, dz) >= MIN_DIST_FROM_PLAYER) {
+      return [x, heightAt(x, z), z]; // <-- apoyado al piso
+    }
+  }
+  // fallback: el último que salga, igual apoyado
+  const [x, , z] = randomLandPoint(0.3, 0.82);
+  return [x, heightAt(x, z), z];
 }
 
 function Enemy({ initial }: { initial: [number, number, number] }) {
@@ -30,7 +45,7 @@ function Enemy({ initial }: { initial: [number, number, number] }) {
   useEffect(() => {
     const g = group.current!;
     g.position.set(...initial);
-    registerEnemy({ id, obj: g, hp: def.hp, maxHp: def.hp, alive: true });
+    registerEnemy({ id, obj: g, hp: def.hp, maxHp: def.hp, alive: true, name: def.name });
     return () => unregisterEnemy(id);
   }, [id, initial, def]);
 
@@ -51,7 +66,7 @@ function Enemy({ initial }: { initial: [number, number, number] }) {
         g.position.y += dt * 0.6;
         if (g.scale.x < 0.05) {
           const sp = randomSpawn();
-          g.position.set(sp[0], 0, sp[2]);
+          g.position.set(sp[0], sp[1], sp[2]); // <-- respawn apoyado (antes era y=0)
           g.scale.setScalar(1);
           en.hp = en.maxHp;
           en.alive = true;
@@ -78,6 +93,8 @@ function Enemy({ initial }: { initial: [number, number, number] }) {
       if (dist > 1.8) {
         anim.current.moving = true;
         g.position.addScaledVector(dir, 3.0 * dt);
+        // mantenerse apoyado al piso mientras camina
+        g.position.y = heightAt(g.position.x, g.position.z);
       } else {
         anim.current.moving = false;
         if (atkCd.current === 0) {

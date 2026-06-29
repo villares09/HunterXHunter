@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { useRocks, exportRocks, importRocks, clearRocks, type RockSet } from "../data/rockStore";
+import { useRocks, exportRocks, importRocks, clearRocks, relevelRocks, type RockSet } from "../data/rockStore";
 
 const BTN: React.CSSProperties = {
   padding: "6px 10px", border: "1px solid #444", borderRadius: 6,
@@ -52,6 +52,9 @@ export function RockHUD() {
       <input type="range" min={1} max={12} step={1} value={density} onChange={(e) => setDensity(+e.target.value)} />
 
       <button style={showMap ? ON : BTN} onClick={toggleMap}>{showMap ? "✓ " : ""}Ver mapa de referencia</button>
+
+      {/* endereza las rocas ya plantadas (re-clampea el tilt según especie) */}
+      <button style={BTN} onClick={relevelRocks}>📐 Enderezar rocas existentes</button>
 
       <div style={{ borderTop: "1px solid #333", paddingTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
         <button style={BTN} onClick={exportRocks}>⬇ Exportar</button>

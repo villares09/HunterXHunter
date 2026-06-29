@@ -13,7 +13,7 @@ export default function App() {
   return (
     <>
       <div id="stage"><Game /></div>
-      {/* <HUD /> */}
+      <HUD />
     </>
   );
 }

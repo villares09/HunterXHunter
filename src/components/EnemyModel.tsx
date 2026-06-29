@@ -54,13 +54,24 @@ export function EnemyModel({
     });
     model.frustumCulled = false;
     const g = group.current!;
-    g.rotation.y = def.faceFlip ? Math.PI : 0;
+
+    // Medir el modelo en ESPACIO LOCAL, aislado del padre.
+    // Sacamos el model a un objeto temporal en el origen, medimos, y lo devolvemos.
+    // Así box.min.y/size.y son SIEMPRE del modelo crudo, sin heredar la posición de spawn.
+    const parent = model.parent;
+    const tmp = new THREE.Group();
+    tmp.add(model);                 // model ahora cuelga del tmp en el origen
+    tmp.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(model);
+    if (parent) parent.add(model);  // devolver el model a su lugar (el group del componente)
+
     const size = box.getSize(new THREE.Vector3());
     const s = def.targetHeight / (size.y || 1);
     g.scale.setScalar(s);
     g.position.y = def.feetY - box.min.y * s;
+    g.rotation.y = def.faceFlip ? Math.PI : 0;
     cur.current = "";
+    
   }, [model, def]);
 
   // play() idéntico a CharacterModel: una action pura, corta el resto.

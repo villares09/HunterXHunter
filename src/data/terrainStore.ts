@@ -242,6 +242,38 @@ export function paintBiomePath(
   saveLocalDebounced();
 }
 
+/* ===================== aplanar terreno bajo un rectángulo (plaza) =====================
+   Lleva las celdas dentro del rect [minX..maxX]×[minZ..maxZ] al nivel `level`,
+   con un borde suave de ancho `falloff` para que no quede escalón.
+   Se usa desde ?edit para nivelar el pueblo bajo las casas agarradas (G).
+   Es DESTRUCTIVO: escribe en HEIGHTS y persiste en mc-heightmap. */
+export function flattenRect(
+  minX: number, maxX: number, minZ: number, maxZ: number, level: number, falloff = 16
+) {
+  ensure();
+  const m = META!, h = HEIGHTS!, W = m.nx + 1;
+  const gi0 = Math.max(0, Math.floor((minX - falloff - m.x0) / m.cell));
+  const gi1 = Math.min(m.nx, Math.ceil((maxX + falloff - m.x0) / m.cell));
+  const gj0 = Math.max(0, Math.floor((minZ - falloff - m.z0) / m.cell));
+  const gj1 = Math.min(m.nz, Math.ceil((maxZ + falloff - m.z0) / m.cell));
+  for (let j = gj0; j <= gj1; j++) {
+    for (let i = gi0; i <= gi1; i++) {
+      const vx = m.x0 + i * m.cell, vz = m.z0 + j * m.cell;
+      // distancia FUERA del rect (0 si está adentro)
+      const dx = Math.max(minX - vx, 0, vx - maxX);
+      const dz = Math.max(minZ - vz, 0, vz - maxZ);
+      const d = Math.hypot(dx, dz);
+      if (d > falloff) continue;
+      const idx = j * W + i;
+      const t = smoothstep(1 - d / falloff); // 1 adentro -> 0 en el borde del falloff
+      h[idx] = h[idx] + (level - h[idx]) * t;
+    }
+  }
+  sanitizeHeights();
+  useTerrain.getState().bump();
+  saveLocalDebounced();
+}
+
 export function resetFlat() {
   buildFlat();
   if (typeof window !== "undefined") window.localStorage.removeItem(LS_KEY);

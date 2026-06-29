@@ -42,6 +42,14 @@ export const ROCK_SPECIES = Array.from(
 const DRY_LEVEL = OCEAN_Y + 0.1; // rocas pueden ir más al borde del agua que los árboles
 const LS_KEY = "mc-rocks";
 
+/* ===== tilt máximo (rad) por especie =====
+   Las medianas son alargadas: con mucho tilt se levantan de una punta como subibaja.
+   Las redondas/cuadradas chiquitas toleran tilt sin verse mal. */
+function maxTiltFor(species: string): number {
+  if (species.startsWith("rockMedium")) return 0.08; // casi derechas
+  return 0;                                        // piedritas: algo de gracia
+}
+
 let ROCKS: Rock[] | null = null;
 let _n = 0;
 const newId = () => `r${Date.now().toString(36)}${_n++}`;
@@ -75,12 +83,11 @@ function pickSpecies(set: RockSet): SpeciesDef {
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
 
 function makeRock(species: string, x: number, z: number, base: number): Rock {
-  // muralla más uniforme (paradas), sueltas/piedritas más tumbadas
-  const tilt = 0.5; // inclinación máxima en X/Z (rad)
+  const tilt = maxTiltFor(species); // inclinación máxima en X/Z según especie
   return {
     id: newId(), species, x, z,
     rx: rand(-tilt, tilt),
-    ry: Math.random() * Math.PI * 2,
+    ry: Math.random() * Math.PI * 2, // giro libre en Y (no afecta el apoyo)
     rz: rand(-tilt, tilt),
     sx: base * rand(0.85, 1.2),
     sy: base * rand(0.8, 1.25),
@@ -115,6 +122,20 @@ export function erase(x: number, z: number) {
   const { radius } = useRocks.getState();
   const r2 = radius * radius;
   ROCKS = ROCKS!.filter((t) => (t.x - x) ** 2 + (t.z - z) ** 2 > r2);
+  useRocks.getState().bump();
+  saveDebounced();
+}
+
+/* ===== endereza las rocas YA plantadas =====
+   Re-clampea rx/rz al tilt permitido de su especie, conservando posición y escala.
+   Las que ya estaban casi derechas no cambian; las muy torcidas se enderezan. */
+export function relevelRocks() {
+  ensure();
+  for (const r of ROCKS!) {
+    const tilt = maxTiltFor(r.species);
+    r.rx = Math.max(-tilt, Math.min(tilt, r.rx));
+    r.rz = Math.max(-tilt, Math.min(tilt, r.rz));
+  }
   useRocks.getState().bump();
   saveDebounced();
 }

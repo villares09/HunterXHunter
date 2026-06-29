@@ -6,13 +6,14 @@ import { getProp } from "../data/world";
 import { heightAt } from "./Terrain";
 import { useForest, getTrees, FOREST_SPECIES, type Tree } from "../data/forestStore";
 
-/* Culling por celdas + distancia de corte.
-   TILE: tamaño de celda (m). VIEW_DIST: a partir de esta distancia (m) de la
-   cámara, la celda no se renderiza. Bajá VIEW_DIST si la GPU sufre; subilo si
-   ves los árboles "aparecer" muy cerca. */
 const TILE = 40;
-const VIEW_DIST = 80;          // distancia de visión de árboles
+const VIEW_DIST = 80;
 const MAX_PER_TILE = 512;
+
+/* árboles: crecen derechos, así que alineado MUY leve a la pendiente y sink chico. */
+const SINK_FRAC = 0.04;
+const ALIGN = 0.15;
+const NORMAL_EPS = 1.5;
 
 type Part = { geometry: THREE.BufferGeometry; material: THREE.Material | THREE.Material[] };
 
@@ -42,15 +43,23 @@ function buildParts(scene: THREE.Object3D, height: number): Part[] {
 
 const tileKey = (x: number, z: number) => `${Math.floor(x / TILE)}_${Math.floor(z / TILE)}`;
 
-/* InstancedMesh por (parte) de una celda. Centro de la celda guardado para la
-   distancia de corte. frustumCulled descarta lo de atrás/costados; la distancia
-   descarta lo lejano de adelante. */
-function TileSpecies({ parts, trees, center }: { parts: Part[]; trees: Tree[]; center: THREE.Vector3 }) {
+function terrainNormal(x: number, z: number, out: THREE.Vector3) {
+  const hL = heightAt(x - NORMAL_EPS, z), hR = heightAt(x + NORMAL_EPS, z);
+  const hD = heightAt(x, z - NORMAL_EPS), hU = heightAt(x, z + NORMAL_EPS);
+  out.set(hL - hR, 2 * NORMAL_EPS, hD - hU).normalize();
+}
+
+function TileSpecies({ parts, trees, center, height }: {
+  parts: Part[]; trees: Tree[]; center: THREE.Vector3; height: number;
+}) {
   const refs = useRef<(THREE.InstancedMesh | null)[]>([]);
 
   useLayoutEffect(() => {
-    const m = new THREE.Matrix4(), q = new THREE.Quaternion();
-    const up = new THREE.Vector3(0, 1, 0), pos = new THREE.Vector3(), scl = new THREE.Vector3();
+    const m = new THREE.Matrix4();
+    const qSpin = new THREE.Quaternion(), qAlign = new THREE.Quaternion(), qFinal = new THREE.Quaternion();
+    const pos = new THREE.Vector3(), scl = new THREE.Vector3();
+    const up = new THREE.Vector3(0, 1, 0), normal = new THREE.Vector3(), alignedUp = new THREE.Vector3();
+
     parts.forEach((_, pi) => {
       const inst = refs.current[pi];
       if (!inst) return;
@@ -61,27 +70,33 @@ function TileSpecies({ parts, trees, center }: { parts: Part[]; trees: Tree[]; c
         const hy = heightAt(t.x, t.z);
         if (!Number.isFinite(t.x) || !Number.isFinite(t.z) || !Number.isFinite(hy) ||
             !Number.isFinite(t.rot) || !Number.isFinite(t.scale) || t.scale <= 0) continue;
-        q.setFromAxisAngle(up, t.rot);
+
+        // giro en Y propio del árbol
+        qSpin.setFromAxisAngle(up, t.rot);
+        // alineado muy leve a la pendiente
+        terrainNormal(t.x, t.z, normal);
+        alignedUp.copy(up).lerp(normal, ALIGN).normalize();
+        qAlign.setFromUnitVectors(up, alignedUp);
+        qFinal.copy(qAlign).multiply(qSpin);
+
         scl.setScalar(t.scale);
-        pos.set(t.x, hy, t.z);
-        m.compose(pos, q, scl);
+        const sink = t.scale * height * SINK_FRAC;
+        pos.set(t.x, hy - sink, t.z);
+        m.compose(pos, qFinal, scl);
         inst.setMatrixAt(written++, m);
       }
       inst.count = written;
       inst.instanceMatrix.needsUpdate = true;
       inst.computeBoundingSphere();
     });
-  }, [parts, trees]);
+  }, [parts, trees, height]);
 
-  // ocultar la celda si está más lejos que VIEW_DIST de la cámara (distancia XZ)
-  const _c = useRef(new THREE.Vector3());
   useFrame((state) => {
     const cam = state.camera.position;
     const dx = cam.x - center.x, dz = cam.z - center.z;
     const visible = dx * dx + dz * dz < (VIEW_DIST + TILE) * (VIEW_DIST + TILE);
     for (const inst of refs.current) if (inst) inst.visible = visible;
   });
-  void _c;
 
   return (
     <>
@@ -121,7 +136,7 @@ function SpeciesForest({ propId, trees }: { propId: string; trees: Tree[] }) {
   return (
     <>
       {Object.entries(tiles).map(([key, { trees: group, center }]) => (
-        <TileSpecies key={key} parts={parts} trees={group} center={center} />
+        <TileSpecies key={key} parts={parts} trees={group} center={center} height={def.height} />
       ))}
     </>
   );
