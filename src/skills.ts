@@ -1,70 +1,94 @@
 import * as THREE from "three";
 import { useRPG } from "./store";
 import { hitInRadius } from "./damage";
-import { startSwing } from "./combat";
-import { requestCombo } from "./components/Movement";
+import { startSwing, attack } from "./combat";
+import { requestSlot } from "./components/Movement";
+import { useTarget } from "./targeting";
 
 // ============================================================
-// SKILLS DE COMBO (estamina) — la barra activa de la 1ra entrega.
-// Cada slot dispara un clip de combo de MOVES vía requestCombo.
-// Costo = fracción de la estamina máxima (escala con stats):
-//   denom 3 = más caro (finisher) · denom 4 = combos normales.
+// SLOTS DE LA BARRA — unifica ACTIONS y SKILLS.
+//  - action: sin cooldown (básico, guard futuro). El básico encadena.
+//  - skill:  con cooldown (combos).
+// Ambos gastan estamina y persiguen al target antes de ejecutar.
 // ============================================================
-export type ComboSkill = {
+export type SlotKind = "action" | "skill";
+
+export type Slot = {
   id: string;
   name: string;
-  code: string;
+  code: string;       // KeyboardEvent.code
   keyLabel: string;
   icon: string;
-  moveId: string;
-  staminaDenom: number;
-  cd: number;
+  kind: SlotKind;
+  // para skills de combo: el move que disparan + costo + cd
+  moveId?: string;    // si es "basic", el Player resuelve la cadena
+  staminaDenom?: number;
+  cd?: number;
   desc: string;
 };
 
-export const COMBO_SKILLS: ComboSkill[] = [
+export const SLOTS: Slot[] = [
   {
-    id: "comboPunch", name: "Combo Puños", code: "Digit1", keyLabel: "1", icon: "👊",
-    moveId: "finisher", staminaDenom: 3, cd: 5, desc: "Cadena de golpes demoledora.",
+    id: "basic", name: "Básico", code: "Digit1", keyLabel: "1", icon: "✊",
+    kind: "action", moveId: "basic", staminaDenom: useRPG.getState().maxStamina, cd: 0,
+    desc: "Golpe básico. Repetí para encadenar.",
   },
   {
     id: "flyingKnee", name: "Rodilla Voladora", code: "Digit2", keyLabel: "2", icon: "🦵",
-    moveId: "flyingKnee", staminaDenom: 4, cd: 4, desc: "Salto con rodilla al objetivo.",
+    kind: "skill", moveId: "flyingKnee", staminaDenom: 4, cd: 4,
+    desc: "Salto con rodilla al objetivo.",
   },
   {
     id: "highKick", name: "Patada Alta", code: "Digit3", keyLabel: "3", icon: "🌀",
-    moveId: "kickHigh", staminaDenom: 4, cd: 3, desc: "Patada alta de gran alcance.",
+    kind: "skill", moveId: "kickHigh", staminaDenom: 4, cd: 3,
+    desc: "Patada alta de gran alcance.",
+  },
+  {
+    id: "comboPunch", name: "Combo Puños", code: "Digit4", keyLabel: "4", icon: "👊",
+    kind: "skill", moveId: "finisher", staminaDenom: 3, cd: 5,
+    desc: "Cadena de golpes demoledora.",
   },
 ];
 
-const comboByCode = new Map(COMBO_SKILLS.map((s) => [s.code, s]));
+const slotByCode = new Map(SLOTS.map((s) => [s.code, s]));
 
-/** Costo de estamina actual de una combo-skill (redondeado = lo que se gasta). */
-export function comboCost(sk: ComboSkill): number {
-  return Math.round(useRPG.getState().maxStamina / sk.staminaDenom);
+/** Costo de estamina actual de un slot (redondeado = lo que se gasta). */
+export function slotCost(sk: Slot): number {
+  return Math.round(useRPG.getState().maxStamina / (sk.staminaDenom ?? 8));
 }
 
-/** Intenta usar una combo-skill por code de tecla. */
-export function useComboByCode(code: string): boolean {
-  const sk = comboByCode.get(code);
+/** Intenta usar un slot por code de tecla. */
+export function useSlotByCode(code: string): boolean {
+  const sk = slotByCode.get(code);
   if (!sk) return false;
-  return useComboSkill(sk);
+  return useSlot(sk);
 }
 
-/** Usa una combo-skill (para tecla y click en slot). */
-export function useComboSkill(sk: ComboSkill): boolean {
+/** Usa un slot (tecla o click). El Player ejecuta vía requestSlot. */
+export function useSlot(sk: Slot): boolean {
   const S = useRPG.getState();
-  if (!S.ready(sk.id)) return false;        // en cooldown
-  const cost = comboCost(sk);
-  if (!S.hasStamina(cost)) return false;    // sin estamina
-  S.setCooldown(sk.id, sk.cd);
-  requestCombo(sk.moveId);                   // el Player lo ejecuta (y gasta estamina)
+
+  // TODO requiere target (básico y skills). Sin objetivo -> no hace nada.
+  if (!useTarget.getState().target) return false;
+
+  // ACTIONS (básico): sin cooldown. El encadenado lo maneja el Player.
+  if (sk.kind === "action") {
+    requestSlot(sk.id);
+    return true;
+  }
+
+  // SKILLS (combo): respeta cd, no se puede tirar durante otro swing.
+  if (attack.active) return false;
+  if (!S.ready(sk.id)) return false;
+  const cost = slotCost(sk);
+  if (!S.hasStamina(cost)) return false;
+  S.setCooldown(sk.id, sk.cd ?? 0);
+  requestSlot(sk.id);
   return true;
 }
 
 // ============================================================
 // SKILLS DE NEN (aura) — DORMIDAS hasta activar el sistema de Nen.
-// No se muestran en la barra. Se conservan para reactivarlas.
 // ============================================================
 export type NenSkill = {
   id: string; name: string; icon: string;

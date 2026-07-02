@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useRPG } from "../store";
 import { Minimap } from "./Minimap";
-import { COMBO_SKILLS, comboCost, useComboSkill } from "../skills";
+import { SLOTS, slotCost, useSlot } from "../skills";
 import { DialogueRunner } from "./DialogueRunner";
 
 function ShakeListener() {
@@ -22,9 +22,9 @@ function SkillBar() {
   const stamina = useRPG((s) => s.stamina);
   return (
     <div className="skillbar">
-      {COMBO_SKILLS.map((sk) => {
+      {SLOTS.map((sk) => {
         const cd = cooldowns[sk.id] ?? 0;
-        const cost = comboCost(sk);
+        const cost = slotCost(sk);
         const off = cd > 0 || stamina < cost;
         return (
           <div
@@ -32,7 +32,7 @@ function SkillBar() {
             className={"slot" + (off ? " off" : "")}
             title={sk.desc}
             style={{ pointerEvents: "auto", cursor: "pointer" }}
-            onClick={() => useComboSkill(sk)}
+            onClick={() => useSlot(sk)}
           >
             <span className="key">{sk.keyLabel}</span>
             <span className="ico">{sk.icon}</span>
@@ -101,7 +101,7 @@ export function HUD() {
       <SkillBar />
 
       <div className="controls">
-        <b>click</b> mover/atacar · <b>doble click</b> auto-ataque · <b>TAB</b> objetivo · <b>SHIFT</b> correr · <b>ESPACIO</b> saltar · <b>1·2·3</b> combos · <b>mouse der</b> cámara
+        <b>click</b> mover/atacar · <b>doble click</b> auto · <b>TAB</b> objetivo · <b>SHIFT</b> correr · <b>ESPACIO</b> saltar · <b>1</b> básico · <b>2·3</b> skills · <b>mouse der</b> cámara
       </div>
     </div>
   );

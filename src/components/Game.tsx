@@ -20,6 +20,7 @@ import { ForestScene } from "./ForestScene";
 import { ForestHUD } from "../editor/forestHUD";
 import { RockScene } from "./RockScene";
 import { RockHUD } from "../editor/rockHUD";
+import { ExportWorld } from "./ExportWorld";
 
 function ReadyGate({ children }: { children: React.ReactNode }) {
   const { active, progress } = useProgress();
@@ -51,11 +52,14 @@ export function Game() {
   const rocksMode = params.has("rocks");
   const topView = sculptMode || edit || drawMode || pathMode || forestMode || rocksMode;
   const playMode = !topView;
+  const exportMode = params.has("export");
 
   const camPos = useMemo<[number, number, number]>(
     () => (drawMode || pathMode ? [0, 320, 0.1] : topView ? [0, 180, 230] : [0, 6, 14]),
     [drawMode, pathMode, topView]
   );
+
+  if (exportMode) return <ExportWorld />;
 
   return (
     <>

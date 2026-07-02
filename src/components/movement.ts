@@ -50,8 +50,8 @@ export function startJump() {
   jump.offset = 0;
 }
 
-// ===== COMBO PENDIENTE (Bloque 3a) =====
-// La barra/teclas marcan "quiero tirar el combo X"; el Player lo lee y lo ejecuta
-// con fireMove (que tiene el gateo de estamina y el sistema de daño).
-export const pendingCombo = { moveId: null as string | null };
-export function requestCombo(moveId: string) { pendingCombo.moveId = moveId; }
+// ===== SLOT PENDIENTE (Bloque 3b) =====
+// La barra/teclas marcan "quiero usar el slot X"; el Player lo lee y lo ejecuta
+// (resuelve básico encadenado o combo, con acercamiento al target).
+export const pendingSlot = { id: null as string | null };
+export function requestSlot(id: string) { pendingSlot.id = id; }

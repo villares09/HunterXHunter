@@ -7,7 +7,7 @@ import { AnimDebug } from "./debug/AnimDebug";
 
 export default function App() {
   const phase = useRPG((s) => s.phase);
-  if (location.search.includes("debug")) return <AnimDebug url="/models/oso.glb" />;
+  if (location.search.includes("debug")) return <AnimDebug url="/models/gon.glb" />;
   if (phase === "select") return <CharacterSelect />;
   if (phase === "onboarding") return <Onboarding />;
   return (

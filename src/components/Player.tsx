@@ -7,19 +7,19 @@ import { CharacterModel, FEET_Y } from "./CharacterModel";
 import { registry, setPlayer } from "../registry";
 import { useRPG } from "../store";
 import { hitInRadius } from "../damage";
-import { useComboByCode, COMBO_SKILLS } from "../skills";
+import { useSlotByCode, SLOTS } from "../skills";
 import { startMove } from "../combat";
 import { MOVES, PUNCH_COMBO, type Move } from "../data/moves";
 import { heightAt } from "../data/terrainStore";
 import {
   move, requestMove, stopMove, auto, startAutoAttack, stopAutoAttack,
-  jump, startJump, GRAVITY, pendingCombo,
+  jump, startJump, GRAVITY, pendingSlot,
 } from "./Movement";
 import { isWalkable, clampWalkable } from "./walkable";
 import { useTarget, targetPos, pickEnemy, cycleTarget } from "../targeting";
 
 const _tmp = new THREE.Vector3();
-const CHAIN_WINDOW = 1.2;
+const CHAIN_WINDOW = 3.5; // ventana para encadenar el básico
 
 const SPAWN: [number, number] = [95, -32];
 
@@ -32,14 +32,10 @@ const NPC_TALK_DIST = 2.5;
 
 const BASIC_STAMINA_FRAC = 1 / 8;
 
-const BASIC_POOL: Move[] = [MOVES.jab, MOVES.cross, MOVES.hook, MOVES.kick, MOVES.elbow];
+// básico encadenado: secuencia SIN finisher
+const BASIC_CHAIN: Move[] = [MOVES.jab, MOVES.cross, MOVES.hook];
 
-// costo de estamina de un combo segun su skill (redondeado, = lo que muestra el slot)
-function comboCostFor(m: Move): number {
-  const sk = COMBO_SKILLS.find((s) => s.moveId === m.id);
-  const denom = sk?.staminaDenom ?? 4;
-  return Math.round(useRPG.getState().maxStamina / denom);
-}
+const BASIC_POOL: Move[] = [MOVES.jab, MOVES.cross, MOVES.hook, MOVES.kick, MOVES.elbow];
 
 function lerpAngle(a: number, b: number, t: number): number {
   let d = b - a;
@@ -77,6 +73,10 @@ export function Player() {
   const nextAtk = useRef(0);
   const pending = useRef<{ at: number; move: Move }[]>([]);
 
+  // cadena del básico
+  const basicStep = useRef(0);
+  const lastBasicAt = useRef(0);
+
   const punchStep = useRef(0);
   const lastInputAt = useRef(0);
   const lastToken = useRef<"P" | "K" | "">("");
@@ -106,32 +106,23 @@ export function Player() {
     return true;
   };
 
+  // resuelve el básico encadenado: avanza la secuencia si estás dentro de la ventana
+  const fireBasic = (): boolean => {
+  const now = performance.now();
+  const chained = (now - lastBasicAt.current) / 1000 <= CHAIN_WINDOW;
+  if (chained) basicStep.current = (basicStep.current + 1) % BASIC_CHAIN.length;
+  else basicStep.current = 0;
+  const m = BASIC_CHAIN[basicStep.current];
+  // costo desde el slot del básico (staminaDenom), no la constante
+  const basicSlot = SLOTS.find((s) => s.id === "basic");
+  const denom = basicSlot?.staminaDenom ?? 8;
+  const cost = Math.round(useRPG.getState().maxStamina / denom);
+  const ok = fireMove(m, cost);
+  if (ok) lastBasicAt.current = now;
+  return ok;
+};
+
   useEffect(() => {
-    const resolveMove = (token: "P" | "K", now: number): Move => {
-      const chained = (now - lastInputAt.current) / 1000 <= CHAIN_WINDOW;
-      if (token === "K" && chained && lastToken.current === "P") {
-        punchStep.current = 0; lastToken.current = "K";
-        return MOVES.flyingKnee;
-      }
-      if (token === "K") {
-        const high = chained && lastToken.current === "K";
-        punchStep.current = 0; lastToken.current = "K";
-        return high ? MOVES.kickHigh : MOVES.kick;
-      }
-      if (chained && lastToken.current === "P") {
-        punchStep.current = (punchStep.current + 1) % PUNCH_COMBO.length;
-      } else {
-        punchStep.current = 0;
-      }
-      lastToken.current = "P";
-      return MOVES[PUNCH_COMBO[punchStep.current]];
-    };
-
-    const doMove = (token: "P" | "K") => {
-      const now = performance.now();
-      fireMove(resolveMove(token, now));
-    };
-
     const onCanvasDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
       if (useRPG.getState().dead || !registry.player) return;
@@ -162,8 +153,9 @@ export function Player() {
         return;
       }
 
+      // click en piso: mueve. Cancela auto-attack y slot pendiente, pero NO suelta el target.
       stopAutoAttack();
-      useTarget.getState().clear();
+      pendingSlot.id = null;
       const g = raymarchGround(raycaster.ray);
       if (!g) return;
       registry.player.getWorldPosition(_tmp);
@@ -180,6 +172,7 @@ export function Player() {
       }
       if (e.code === "Escape") {
         stopAutoAttack();
+        pendingSlot.id = null;
         useTarget.getState().clear();
         return;
       }
@@ -197,11 +190,9 @@ export function Player() {
         return;
       }
 
-      if (e.code === "KeyJ") { doMove("P"); return; }
-      if (e.code === "KeyK") { doMove("K"); return; }
       if (useRPG.getState().dead) return;
       if (e.code.startsWith("Digit")) {
-        useComboByCode(e.code);
+        useSlotByCode(e.code);
       }
     };
 
@@ -222,24 +213,61 @@ export function Player() {
     const S = useRPG.getState();
     let movingNow = false;
 
-    // ===== COMBO PENDIENTE (barra / teclas 1-3) =====
-    if (pendingCombo.moveId && root) {
-      const m = (MOVES as Record<string, Move>)[pendingCombo.moveId];
-      pendingCombo.moveId = null;
-      if (m) {
-        fireMove(m, comboCostFor(m));
-        const tp = targetPos();
-        if (tp) {
+    // ===== SLOT PENDIENTE (básico encadenado o skill con acercamiento) =====
+    if (pendingSlot.id && root) {
+      const slot = SLOTS.find((s) => s.id === pendingSlot.id);
+      const tp = targetPos();
+
+      // determinar el move y su rango para el acercamiento
+      let mv: Move | null = null;
+      if (slot) {
+        if (slot.id === "basic") {
+          mv = BASIC_CHAIN[basicStep.current]; // rango aprox del básico
+        } else if (slot.moveId) {
+          mv = (MOVES as Record<string, Move>)[slot.moveId] ?? null;
+        }
+      }
+
+      // ¿hay que acercarse? sólo si hay target y está fuera del rango del move
+      let inRange = true;
+      if (slot && tp && mv) {
+        const dx = tp.x - root.position.x, dz = tp.z - root.position.z;
+        const dist = Math.hypot(dx, dz);
+        const reach = Math.max(1.2, mv.range - 0.4); // un pelín menos que el rango
+        if (dist > reach) {
+          inRange = false;
+          // perseguir hasta el rango
+          const inv = 1 / dist;
+          const txp = tp.x - dx * inv * reach;
+          const tzp = tp.z - dz * inv * reach;
+          const [cx, cz] = clampWalkable(root.position.x, root.position.z, txp, tzp);
+          requestMove(cx, cz, { stopDist: 0.3 });
+        } else {
+          // ya en rango: encarar al target
+          if (move.dest) stopMove();
+          facing.current = Math.atan2(dx, dz);
+          root.rotation.y = facing.current;
+        }
+      }
+
+      if (inRange) {
+        // ejecutar el slot
+        if (slot?.id === "basic") {
+          fireBasic();
+        } else if (mv) {
+          const cost = Math.round(S.maxStamina / (slot?.staminaDenom ?? 4));
+          fireMove(mv, cost);
+        }
+        pendingSlot.id = null;
+        // encarar de nuevo por si tp existe
+        if (tp && root) {
           const dx = tp.x - root.position.x, dz = tp.z - root.position.z;
-          if (Math.hypot(dx, dz) > 0.01) {
-            facing.current = Math.atan2(dx, dz);
-            root.rotation.y = facing.current;
-          }
+          if (Math.hypot(dx, dz) > 0.01) { facing.current = Math.atan2(dx, dz); root.rotation.y = facing.current; }
         }
       }
     }
 
-    // ===== AUTO-ATTACK =====
+    // ===== AUTO-ATTACK (click) =====
     if (auto.active && root) {
       const en = auto.enemyId != null ? registry.enemies.get(auto.enemyId) : null;
       if (!en || !en.alive) {
@@ -320,7 +348,7 @@ export function Player() {
       }
     }
 
-    // ===== SALTO: integra el arco y lo suma a la Y =====
+    // ===== SALTO =====
     if (root) {
       if (jump.active) {
         jump.vy -= GRAVITY * dt;
