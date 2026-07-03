@@ -61,7 +61,7 @@ type State = {
 export const useEditor = create<State>()(
   persist(
     (set) => ({
-      instances: SEED,
+      instances: [],
       selected: null,
       gizmo: "translate",
       snap: true,

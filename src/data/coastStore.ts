@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { isEditMode, worldLayer } from "@/data/worlds/worldSource";
 
 /* =========================================================================
    COSTA editable. Guardada NORMALIZADA ([-~1..~1]). Por defecto = el trazado
@@ -37,12 +38,20 @@ let VERSION = 0;
 
 function load() {
   if (NORM) return;
-  if (typeof window !== "undefined") {
-    const s = window.localStorage.getItem(LS);
-    if (s) {
-      try { NORM = JSON.parse(s) as [number, number][]; return; } catch { /* cae a default */ }
+  if (isEditMode()) {
+    // TALLER: tu borrador en localStorage, o el default de fábrica (igual que antes)
+    if (typeof window !== "undefined") {
+      const s = window.localStorage.getItem(LS);
+      if (s) {
+        try { NORM = JSON.parse(s) as [number, number][]; return; } catch { /* cae a default */ }
+      }
     }
+    NORM = DEFAULT_NORM;
+    return;
   }
+  // JUEGO: la capa horneada, o el default si falta
+  const baked = worldLayer(LS);
+  if (baked) { NORM = baked as [number, number][]; return; }
   NORM = DEFAULT_NORM;
 }
 

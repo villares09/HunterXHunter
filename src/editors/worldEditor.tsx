@@ -2,11 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useGLTF, OrbitControls, TransformControls, Grid, useTexture } from "@react-three/drei";
 import { useThree, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import { getProp } from "../data/world";
-import { heightAt, Terrain } from "../components/Terrain";
-import { flattenRect } from "../data/terrainStore";
-import { ANCHO_TOTAL_3D, ALTO_TOTAL_3D, islandCenter } from "../data/island";
-import { useEditor, type Instance } from "../data/editorStore";
+import { getProp } from "@/data/world";
+import { heightAt, Terrain } from "@/components/Terrain";
+import { flattenRect } from "@/data/terrainStore";
+import { ANCHO_TOTAL_3D, ALTO_TOTAL_3D, islandCenter } from "@/data/island";
+import { useEditor, type Instance } from "@/data/editorStore";
+import { getWaterfalls, useWaterfalls, setWaterfallPoint, addWaterfall, setWaterfallPoolY, setWaterfallTopY } from "@/data/waterfallStore";
+import { Waterfall } from "@/components/Waterfall";
 
 const NO_BTN = -1 as unknown as THREE.MOUSE;
 
@@ -18,6 +20,59 @@ const RADIUS_MIN = 10, RADIUS_MAX = 300;
 /* ===== aplanar (T) ===== */
 const FLATTEN_MARGIN = 12;  // cuánto se extiende el área plana más allá de las casas
 const FLATTEN_FALLOFF = 16; // ancho del borde suave alrededor de la plaza
+
+function WaterfallHandle({
+  id, which, x, z, color, manualY, onDragStart, onDragEnd,
+}: {
+  id: string;
+  which: "top" | "pool";
+  x: number;
+  z: number;
+  color: string;
+  manualY: number | null;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+}) {
+  const ref = useRef<THREE.Mesh>(null);
+  const [active, setActive] = useState(false);
+
+  // posiciona la esfera sobre el terreno cuando cambian x/z desde el store
+  useEffect(() => {
+    if (ref.current && !active) {
+      const baseY = manualY ?? heightAt(x, z);
+      ref.current.position.set(x, baseY + 1.5, z);
+    }
+  }, [x, z, active, manualY]);
+
+  return (
+    <>
+      <mesh
+        ref={ref}
+        onPointerDown={(e) => { e.stopPropagation(); setActive(true); }}
+      >
+        <sphereGeometry args={[2, 16, 16]} />
+        <meshBasicMaterial color={color} depthTest={false} transparent opacity={0.9} />
+      </mesh>
+      {active && ref.current && (
+        <TransformControls
+          object={ref.current}
+          mode="translate"
+          onMouseDown={onDragStart}
+          onMouseUp={() => {
+            const p = ref.current!.position;
+            setWaterfallPoint(id, which, p.x, p.z);
+            // guardar la altura Y manual del punto (restá el offset visual +1.5 de la esfera)
+            const y = p.y - 1.5;
+            if (which === "top") setWaterfallTopY(id, y);
+            else setWaterfallPoolY(id, y);
+            setActive(false);
+            onDragEnd();
+          }}
+        />
+      )}
+    </>
+  );
+}
 
 function useModel(propId: string) {
   const def = getProp(propId);
@@ -107,6 +162,9 @@ export function WorldEditor() {
   const commit = useEditor((s) => s.commit);
   const remove = useEditor((s) => s.remove);
   const setSpawn = useEditor((s) => s.setSpawn);
+  const wfRev = useWaterfalls((s) => s.rev);
+  const pendingTop = useWaterfalls((s) => s.pendingTop);
+  const wfSelected = useWaterfalls((s) => s.selected);
 
   const [selObj, setSelObj] = useState<THREE.Object3D | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -212,6 +270,19 @@ export function WorldEditor() {
     commit(selected, [p.x, py, p.z], e.y, selObj.scale.x);
   };
 
+  const markTop = () => {
+    const [sx, , sz] = useEditor.getState().spawn;
+    useWaterfalls.getState().setPendingTop([sx, sz]);
+  };
+
+  const markPool = () => {
+    const top = useWaterfalls.getState().pendingTop;
+    if (!top) { alert("Primero marcá el nacimiento (arriba)."); return; }
+    const [sx, , sz] = useEditor.getState().spawn;
+    addWaterfall(top, [sx, sz]);       // crea la cascada
+    useWaterfalls.getState().setPendingTop(null); // resetea
+  };
+
   return (
     <>
       <OrbitControls
@@ -264,6 +335,29 @@ export function WorldEditor() {
           onMouseDown={() => setDragging(true)}
           onMouseUp={() => { setDragging(false); onCommit(); }}
         />
+      )}
+      {/* cascadas del store, visibles mientras editás */}
+      <Waterfall key={wfRev} />
+      {/* manijas de la cascada en edición */}
+      {wfSelected && (() => {
+        const w = getWaterfalls().find((f) => f.id === wfSelected);
+        if (!w) return null;
+        return (
+          <>
+            <WaterfallHandle id={w.id} which="top" x={w.top[0]} z={w.top[1]} manualY={w.topY}
+              color="#4ec5e0" onDragStart={() => setDragging(true)} onDragEnd={() => setDragging(false)} />
+            <WaterfallHandle id={w.id} which="pool" x={w.pool[0]} z={w.pool[1]} manualY={w.poolY}
+              color="#2f7fb5" onDragStart={() => setDragging(true)} onDragEnd={() => setDragging(false)} />
+          </>
+        );
+      })()}
+
+      {/* marcador del nacimiento pendiente (primer punto ya marcado) */}
+      {pendingTop && (
+        <mesh position={[pendingTop[0], heightAt(pendingTop[0], pendingTop[1]) + 0.3, pendingTop[1]]}>
+          <sphereGeometry args={[1.2, 16, 16]} />
+          <meshBasicMaterial color="#4ec5e0" />
+        </mesh>
       )}
     </>
   );

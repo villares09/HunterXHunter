@@ -2,11 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { OrbitControls, useTexture } from "@react-three/drei";
 import { ThreeEvent, useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import { Terrain } from "./Terrain";
-import { PaintedRocks } from "./PaintedRocks";
-import { PaintedForest } from "./PaintedForest";
-import { ANCHO_TOTAL_3D, ALTO_TOTAL_3D, islandCenter } from "../data/island";
-import { useRocks, plant, erase } from "../data/rockStore";
+import { Terrain } from "@/components/Terrain";
+import { PaintedRocks } from "@/components/PaintedRocks";
+import { PaintedForest } from "@/components/PaintedForest";
+import { ANCHO_TOTAL_3D, ALTO_TOTAL_3D, islandCenter } from "@/data/island";
+import { useRocks, plant, erase } from "@/data/rockStore";
 
 const NO_BTN = -1 as unknown as THREE.MOUSE;
 

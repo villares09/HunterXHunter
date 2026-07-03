@@ -2,17 +2,22 @@ import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { heightAt } from "./Terrain";
+import { getWaterfalls, useWaterfalls, type Waterfall as WF } from "@/data/waterfallStore";
+import { PoolSplash } from "./PoolSplash";
 
-/* Cascada estilo toon (Nivel 1):
-   - lámina de agua que cae de la cima al pozo, con la textura desplazándose (scroll)
-   - espuma blanca donde golpea
-   - superficie del pozo con ondas suaves
-   Posición fija (sin editor). Cambiá TOP/POOL si querés moverla. */
+/* =========================================================================
+   Cascada estilo toon. La lámina ya NO es un plano recto en diagonal:
+   es una CINTA que va del nacimiento al pozo siguiendo el relieve, apoyada
+   sobre el terreno con un pequeño colchón (para que abrace la roca sin
+   clippear). El agua scrollea a lo largo del recorrido (baja siguiendo la
+   curva). El shader de agua es el mismo de siempre.
+   ========================================================================= */
 
-const TOP = { x: -54, z: -15 };   // nace (cima)
-const POOL = { x: -17, z: -49 };  // cae (pozo)
+const SEGMENTS = 24;      // subdivisiones a lo largo (más = sigue mejor la curva, más pesado)
+const POOL_LIFT = 0.3;    // cuánto sube el tramo final para entrar al pozo
+const smoothstep01 = (x: number) => { const t = x < 0 ? 0 : x > 1 ? 1 : x; return t * t * (3 - 2 * t); };
 
-// material de agua que scrollea hacia abajo (caída) usando onBeforeCompile
+// material de agua que scrollea a lo largo de la cinta (uv.y = recorrido)
 function makeFallMaterial(color: string, speed: number) {
   const mat = new THREE.MeshBasicMaterial({
     color, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false,
@@ -35,12 +40,12 @@ function makeFallMaterial(color: string, speed: number) {
     ).replace(
       "#include <color_fragment>",
       `#include <color_fragment>
-       // bandas que bajan (efecto de agua cayendo)
+       // bandas que bajan a lo largo del recorrido (agua cayendo)
        float v = vUvW.y * 6.0 + uT * uSpeed;
        float bands = 0.5 + 0.5 * sin(v * 6.2831);
        float streaks = 0.6 + 0.4 * sin(vUvW.x * 40.0);
        diffuseColor.rgb *= (0.75 + 0.35 * bands * streaks);
-       // espuma arriba y abajo
+       // espuma arriba (nacimiento) y abajo (pozo)
        float foam = smoothstep(0.92, 1.0, vUvW.y) + smoothstep(0.08, 0.0, vUvW.y);
        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), foam * 0.7);`
     );
@@ -48,21 +53,73 @@ function makeFallMaterial(color: string, speed: number) {
   return mat;
 }
 
-export function Waterfall() {
-  const topY = heightAt(TOP.x, TOP.z);
-  const poolY = heightAt(POOL.x, POOL.z);
+/* construye una cinta del top al pool que sigue el terreno.
+   widthScale permite una segunda lámina más angosta (volumen). */
+function buildRibbon(
+  top: [number, number], pool: [number, number], width: number, widthScale: number,
+  lift: number, cushion: number, topYManual: number | null, poolYManual: number | null
+): THREE.BufferGeometry {
+  const [tx, tz] = top;
+  const [px, pz] = pool;
 
-  // geometría: orientamos un plano vertical desde la cima al pozo
-  const data = useMemo(() => {
-    const a = new THREE.Vector3(TOP.x, topY, TOP.z);
-    const b = new THREE.Vector3(POOL.x, poolY + 0.3, POOL.z);
-    const mid = a.clone().add(b).multiplyScalar(0.5);
-    const len = a.distanceTo(b);
-    const horiz = Math.hypot(b.x - a.x, b.z - a.z);
-    const angleY = Math.atan2(b.x - a.x, b.z - a.z); // giro hacia el pozo
-    const tilt = Math.atan2(horiz, a.y - b.y);        // inclinación de la caída
-    return { mid, len, angleY, tilt };
-  }, [topY, poolY]);
+  // dirección del recorrido (horizontal) y perpendicular (para el ancho)
+  const dx = px - tx, dz = pz - tz;
+  const len = Math.hypot(dx, dz) || 1;
+  const perpx = -dz / len, perpz = dx / len; // perpendicular horizontal
+  const halfW = (width * widthScale) / 2;
+
+  const positions: number[] = [];
+  const uvs: number[] = [];
+
+  // fila por fila a lo largo del recorrido
+  for (let s = 0; s <= SEGMENTS; s++) {
+    const t = s / SEGMENTS;
+    const cx = tx + dx * t;
+    const cz = tz + dz * t;
+    // altura: sigue el terreno + colchón; el tramo final sube un poco al pozo
+    // altura base: manual (interpolada entre extremos) o del terreno
+    // la cinta SIEMPRE sigue el terreno; la Y manual es un offset por extremo
+    const terr = heightAt(cx, cz);
+    // offset del nacimiento: cuánto se corrió respecto a su terreno
+    const topOff = topYManual !== null ? topYManual - heightAt(tx, tz) : 0;
+    const poolOff = poolYManual !== null ? poolYManual - heightAt(px, pz) : 0;
+    // interpolamos el offset a lo largo del recorrido (0 arriba .. 1 abajo)
+    const off = topOff * (1 - t) + poolOff * t;
+    // el nacimiento nace pegado a la roca; el cushion crece hacia el pozo
+    const cushionRamp = cushion * smoothstep01(t * 2); // 0 arriba -> pleno en el primer tramo
+    const y = terr + off + cushionRamp + lift + POOL_LIFT * t;
+
+    // dos vértices (izq y der del ancho)
+    const lx = cx + perpx * halfW, lz = cz + perpz * halfW;
+    const rx = cx - perpx * halfW, rz = cz - perpz * halfW;
+    positions.push(lx, y, lz, rx, y, rz);
+    // uv: x = ancho (0..1), y = recorrido (1 arriba .. 0 abajo)
+    uvs.push(0, 1 - t, 1, 1 - t);
+  }
+
+  // índices (dos triángulos por segmento)
+  const indices: number[] = [];
+  for (let s = 0; s < SEGMENTS; s++) {
+    const a = s * 2, b = s * 2 + 1, c = s * 2 + 2, d = s * 2 + 3;
+    indices.push(a, b, c, b, d, c);
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/* una sola cascada, definida por su instancia del store */
+function OneWaterfall({ fall }: { fall: WF }) {
+  const [px, pz] = fall.pool;
+  const poolY = fall.poolY ?? heightAt(px, pz);
+
+  // dos cintas superpuestas (más volumen), ambas siguen el terreno
+  const geoA = useMemo(() => buildRibbon(fall.top, fall.pool, fall.width, 1.0, 0.0, fall.cushion, fall.topY, fall.poolY), [fall.top, fall.pool, fall.width, fall.cushion, fall.topY, fall.poolY]);
+  const geoB = useMemo(() => buildRibbon(fall.top, fall.pool, fall.width, 0.7, 0.15, fall.cushion, fall.topY, fall.poolY), [fall.top, fall.pool, fall.width, fall.cushion, fall.topY, fall.poolY]);
 
   const fallMat = useMemo(() => makeFallMaterial("#bfe6f0", 1.0), []);
   const fallMat2 = useMemo(() => makeFallMaterial("#8fd0e6", 1.6), []);
@@ -81,29 +138,32 @@ export function Waterfall() {
     }
   });
 
-  const W = 5; // ancho de la cascada
-
   return (
     <group>
-      {/* dos láminas de agua superpuestas (más volumen) */}
-      <group position={data.mid.toArray()} rotation={[0, data.angleY, 0]}>
-        <mesh rotation={[data.tilt - Math.PI / 2, 0, 0]} material={fallMat}>
-          <planeGeometry args={[W, data.len, 1, 8]} />
-        </mesh>
-        <mesh position={[0, 0, 0.4]} rotation={[data.tilt - Math.PI / 2, 0, 0]} material={fallMat2}>
-          <planeGeometry args={[W * 0.7, data.len, 1, 8]} />
-        </mesh>
-      </group>
+      {/* dos cintas de agua que siguen el relieve */}
+      <mesh geometry={geoA} material={fallMat} />
+      <mesh geometry={geoB} material={fallMat2} />
 
-      {/* pileta: superficie de agua + espuma */}
-      <mesh ref={poolRef} rotation={[-Math.PI / 2, 0, 0]} position={[POOL.x, poolY + 0.15, POOL.z]} material={poolMat}>
+      {/* pileta: superficie de agua acumulada en el pozo */}
+      <mesh ref={poolRef} rotation={[-Math.PI / 2, 0, 0]} position={[px, poolY + 0.15, pz]} material={poolMat}>
         <circleGeometry args={[6, 40]} />
       </mesh>
-      {/* anillo de espuma donde golpea */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[POOL.x, poolY + 0.18, POOL.z]}>
-        <ringGeometry args={[1.5, 3, 32]} />
-        <meshBasicMaterial color="#ffffff" transparent opacity={0.5} side={THREE.DoubleSide} depthWrite={false} />
-      </mesh>
+
+      {/* salpicadura + spray donde golpea (partículas) */}
+      <PoolSplash x={px} y={poolY + 0.2} z={pz} />
     </group>
+  );
+}
+
+export function Waterfall() {
+  const rev = useWaterfalls((s) => s.rev); // re-render cuando cambian las cascadas
+  const falls = useMemo(() => getWaterfalls(), [rev]);
+
+  return (
+    <>
+      {falls.map((f) => (
+        <OneWaterfall key={f.id} fall={f} />
+      ))}
+    </>
   );
 }

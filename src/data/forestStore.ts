@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { OCEAN_Y } from "./island";
 import { heightAt } from "./terrainStore";
+import { isEditMode, worldLayer } from "@/data/worlds/worldSource";
 
 export type Tree = { id: string; species: string; x: number; z: number; rot: number; scale: number };
 export type ForestSet = "bosque" | "pantano" | "pastoAlto" | "flores" | "arbustos" | "mixto";
@@ -78,12 +79,20 @@ const newId = () => `t${Date.now().toString(36)}${_n++}`;
 
 function load() {
   if (TREES) return;
-  if (typeof window !== "undefined") {
-    const s = window.localStorage.getItem(LS_KEY);
-    if (s) { try { TREES = JSON.parse(s) as Tree[]; return; } catch { /* vacío */ } }
+  if (isEditMode()) {
+    if (typeof window !== "undefined") {
+      const s = window.localStorage.getItem(LS_KEY);
+      if (s) { try { TREES = JSON.parse(s) as Tree[]; return; } catch { /* vacío */ } }
+    }
+    TREES = [];
+    return;
   }
+  // JUEGO: capa horneada
+  const baked = worldLayer(LS_KEY);
+  if (Array.isArray(baked)) { TREES = baked as Tree[]; return; }
   TREES = [];
 }
+
 function ensure() { if (!TREES) load(); }
 export function getTrees(): Tree[] { ensure(); return TREES!; }
 

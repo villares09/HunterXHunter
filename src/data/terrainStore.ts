@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { coastPolygon, isLand, OCEAN_Y } from "./island";
+import { isEditMode, worldLayer } from "@/data/worlds/worldSource";
 
 /* ===================== config ===================== */
 const CELL = 5;            // resolución fina
@@ -83,18 +84,33 @@ function sanitizeHeights() {
 }
 
 function loadOrBuild() {
-  if (typeof window !== "undefined") {
-    const saved = window.localStorage.getItem(LS_KEY);
-    if (saved) {
-      try {
-        const o = JSON.parse(saved) as { meta: Meta; heights: number[]; biome?: number[] };
-        META = o.meta;
-        HEIGHTS = Float32Array.from(o.heights);
-        BIOME = o.biome ? Uint8Array.from(o.biome) : new Uint8Array(HEIGHTS.length);
-        sanitizeHeights();
-        return;
-      } catch { /* cae a flat */ }
+  if (isEditMode()) {
+    // TALLER: localStorage, o construir plano (idéntico a antes)
+    if (typeof window !== "undefined") {
+      const saved = window.localStorage.getItem(LS_KEY);
+      if (saved) {
+        try {
+          const o = JSON.parse(saved) as { meta: Meta; heights: number[]; biome?: number[] };
+          META = o.meta;
+          HEIGHTS = Float32Array.from(o.heights);
+          BIOME = o.biome ? Uint8Array.from(o.biome) : new Uint8Array(HEIGHTS.length);
+          sanitizeHeights();
+          return;
+        } catch { /* cae a flat */ }
+      }
     }
+    buildFlat();
+    sanitizeHeights();
+    return;
+  }
+  // JUEGO: la capa horneada del JSON
+  const baked = worldLayer(LS_KEY) as { meta: Meta; heights: number[]; biome?: number[] } | null;
+  if (baked && baked.meta && Array.isArray(baked.heights)) {
+    META = baked.meta;
+    HEIGHTS = Float32Array.from(baked.heights);
+    BIOME = baked.biome ? Uint8Array.from(baked.biome) : new Uint8Array(HEIGHTS.length);
+    sanitizeHeights();
+    return;
   }
   buildFlat();
   sanitizeHeights();

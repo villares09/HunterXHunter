@@ -1,11 +1,16 @@
 import { useRef } from "react";
-import { useRocks, exportRocks, importRocks, clearRocks, relevelRocks, type RockSet } from "../data/rockStore";
+import { useRocks, exportRocks, importRocks, clearRocks, relevelRocks, type RockSet } from "@/data/rockStore";
 
 const BTN: React.CSSProperties = {
   padding: "6px 10px", border: "1px solid #444", borderRadius: 6,
   background: "#2a2a2a", color: "#eee", cursor: "pointer", fontSize: 12,
 };
 const ON: React.CSSProperties = { ...BTN, background: "#9ca3af", color: "#111", fontWeight: 700, borderColor: "#9ca3af" };
+const HUB: React.CSSProperties = {
+  textDecoration: "none", textAlign: "center",
+  padding: "6px 10px", border: "1px solid #4ec5e0", borderRadius: 6,
+  background: "rgba(78,197,224,.15)", color: "#bfeeff", fontSize: 12, fontWeight: 600,
+};
 
 export function RockHUD() {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -31,6 +36,7 @@ export function RockHUD() {
       fontFamily: "system-ui, sans-serif", display: "flex", flexDirection: "column", gap: 9,
     }}>
       <div style={{ fontWeight: 700, fontSize: 14 }}>🪨 Pincel de rocas</div>
+      <a href="?export" style={HUB}>⌂ Panel de Mundo</a>
 
       <div style={{ fontSize: 11, opacity: 0.6 }}>Tipo:</div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>

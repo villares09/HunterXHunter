@@ -2,9 +2,9 @@ import { useEffect } from "react";
 import { OrbitControls, useTexture, Line } from "@react-three/drei";
 import { ThreeEvent, useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import { Terrain, heightAt } from "./Terrain";
-import { ANCHO_TOTAL_3D, ALTO_TOTAL_3D, islandCenter } from "../data/island";
-import { usePath } from "../data/pathStore";
+import { Terrain, heightAt } from "@/components/Terrain";
+import { ANCHO_TOTAL_3D, ALTO_TOTAL_3D, islandCenter } from "@/data/island";
+import { usePath } from "@/data/pathStore";
 
 const NO_BTN = -1 as unknown as THREE.MOUSE;
 

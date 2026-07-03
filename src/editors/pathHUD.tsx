@@ -1,11 +1,16 @@
-import { usePath, applyPath, fillPath } from "../data/pathStore";
-import { BIOME_ROAD, BIOME_TOWN, BIOME_SWAMP, BIOME_GRASS } from "../data/terrainStore";
+import { usePath, applyPath, fillPath } from "@/data/pathStore";
+import { BIOME_ROAD, BIOME_TOWN, BIOME_SWAMP, BIOME_GRASS } from "@/data/terrainStore";
 
 const BTN: React.CSSProperties = {
   padding: "6px 10px", border: "1px solid #444", borderRadius: 6,
   background: "#2a2a2a", color: "#eee", cursor: "pointer", fontSize: 12,
 };
 const ON: React.CSSProperties = { ...BTN, background: "#4ade80", color: "#06280f", fontWeight: 700, borderColor: "#4ade80" };
+const HUB: React.CSSProperties = {
+  textDecoration: "none", textAlign: "center",
+  padding: "6px 10px", border: "1px solid #4ec5e0", borderRadius: 6,
+  background: "rgba(78,197,224,.15)", color: "#bfeeff", fontSize: 12, fontWeight: 600,
+};
 
 export function PathHUD() {
   const points = usePath((s) => s.points);
@@ -32,6 +37,7 @@ export function PathHUD() {
       fontFamily: "system-ui, sans-serif", display: "flex", flexDirection: "column", gap: 9,
     }}>
       <div style={{ fontWeight: 700, fontSize: 14 }}>🛣️ Caminos (trazo)</div>
+      <a href="?export" style={HUB}>⌂ Panel de Mundo</a>
 
       <div style={{ fontSize: 11, opacity: 0.6 }}>Bioma a pintar:</div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>

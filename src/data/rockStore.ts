@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { heightAt } from "./terrainStore";
 import { OCEAN_Y } from "./island";
+import { isEditMode, worldLayer } from "@/data/worlds/worldSource";
 
 /* cada roca guarda rotación en los 3 ejes + escala no uniforme (sx,sy,sz)
    para que con pocos modelos no se note la repetición. */
@@ -56,10 +57,17 @@ const newId = () => `r${Date.now().toString(36)}${_n++}`;
 
 function load() {
   if (ROCKS) return;
-  if (typeof window !== "undefined") {
-    const s = window.localStorage.getItem(LS_KEY);
-    if (s) { try { ROCKS = JSON.parse(s) as Rock[]; return; } catch { /* vacío */ } }
+  if (isEditMode()) {
+    if (typeof window !== "undefined") {
+      const s = window.localStorage.getItem(LS_KEY);
+      if (s) { try { ROCKS = JSON.parse(s) as Rock[]; return; } catch { /* vacío */ } }
+    }
+    ROCKS = [];
+    return;
   }
+  // JUEGO: capa horneada
+  const baked = worldLayer(LS_KEY);
+  if (Array.isArray(baked)) { ROCKS = baked as Rock[]; return; }
   ROCKS = [];
 }
 function ensure() { if (!ROCKS) load(); }

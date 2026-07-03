@@ -1,8 +1,13 @@
-import { useDraw, applyDrawnCoast } from "../data/drawStore";
+import { useDraw, applyDrawnCoast } from "@/data/drawStore";
 
 const BTN: React.CSSProperties = {
   padding: "6px 10px", border: "1px solid #444", borderRadius: 6,
   background: "#2a2a2a", color: "#eee", cursor: "pointer", fontSize: 12,
+};
+const HUB: React.CSSProperties = {
+  textDecoration: "none", textAlign: "center",
+  padding: "6px 10px", border: "1px solid #4ec5e0", borderRadius: 6,
+  background: "rgba(78,197,224,.15)", color: "#bfeeff", fontSize: 12, fontWeight: 600,
 };
 
 export function DrawHUD() {
@@ -12,6 +17,8 @@ export function DrawHUD() {
   const clear = useDraw((s) => s.clear);
   const setOpacity = useDraw((s) => s.setOpacity);
 
+  
+
   return (
     <div style={{
       position: "fixed", top: 16, left: 16, zIndex: 99999, width: 250,
@@ -19,7 +26,7 @@ export function DrawHUD() {
       fontFamily: "system-ui, sans-serif", display: "flex", flexDirection: "column", gap: 10,
     }}>
       <div style={{ fontWeight: 700, fontSize: 14 }}>✏️ Dibujar costa</div>
-
+      <a href="?export" style={HUB}>⌂ Panel de Mundo</a>
       <div style={{ fontSize: 12, opacity: 0.85 }}>Puntos: {points.length}</div>
 
       <label style={{ fontSize: 12 }}>Opacidad del mapa: {opacity.toFixed(2)}</label>

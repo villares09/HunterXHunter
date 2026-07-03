@@ -1,9 +1,9 @@
 import { OrbitControls, useTexture } from "@react-three/drei";
 import * as THREE from "three";
-import { Terrain } from "./Terrain";
-import { Ocean } from "./Ocean";
-import { useTerrain } from "../data/terrainStore";
-import { ANCHO_TOTAL_3D, ALTO_TOTAL_3D, islandCenter } from "../data/island";
+import { Terrain } from "@/components/Terrain";
+import { Ocean } from "@/components/Ocean";
+import { useTerrain } from "@/data/terrainStore";
+import { ANCHO_TOTAL_3D, ALTO_TOTAL_3D, islandCenter } from "@/data/island";
 
 /* mapa de referencia: se dibuja por encima (depthTest off) y semitransparente
    para alinear. Toggle desde el HUD. */

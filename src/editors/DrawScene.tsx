@@ -1,8 +1,8 @@
 import { OrbitControls, useTexture, Line } from "@react-three/drei";
 import { ThreeEvent } from "@react-three/fiber";
 import * as THREE from "three";
-import { ANCHO_TOTAL_3D, ALTO_TOTAL_3D } from "../data/island";
-import { useDraw } from "../data/drawStore";
+import { ANCHO_TOTAL_3D, ALTO_TOTAL_3D } from "@/data/island";
+import { useDraw } from "@/data/drawStore";
 
 const NO_BTN = -1 as unknown as THREE.MOUSE;
 
