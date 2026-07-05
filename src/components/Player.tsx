@@ -71,7 +71,7 @@ export function Player() {
   const ref = useRef<THREE.Group>(null);
   const facing = useRef(0);
   const nextAtk = useRef(0);
-  const pending = useRef<{ at: number; move: Move }[]>([]);
+  const pending = useRef<{ at: number; move: Move; hitIndex: number }[]>([]);
 
   // cadena del básico
   const basicStep = useRef(0);
@@ -102,7 +102,9 @@ export function Player() {
     nextAtk.current = now + (m.swing + m.cooldown) * 1000;
     startMove(m);
     const frames = Array.isArray(m.hitFrame) ? m.hitFrame : [m.hitFrame];
-    for (const hf of frames) pending.current.push({ at: now + hf * 1000, move: m });
+    frames.forEach((hf, idx) =>
+      pending.current.push({ at: now + hf * 1000, move: m, hitIndex: idx })
+    );
     return true;
   };
 
@@ -251,18 +253,27 @@ export function Player() {
       }
 
       if (inRange) {
-        // ejecutar el slot
+        // ejecutar el slot. Guardamos si realmente disparó: si el swing anterior
+        // todavía bloquea (fireMove devuelve false), NO limpiamos el pending —
+        // se reintenta en los próximos frames y así el básico encadena solo.
+        let fired = false;
         if (slot?.id === "basic") {
-          fireBasic();
-        } else if (mv) {
-          const cost = Math.round(S.maxStamina / (slot?.staminaDenom ?? 4));
-          fireMove(mv, cost);
+          fired = fireBasic();
+        } else if (mv && slot) {
+          const cost = Math.round(S.maxStamina / (slot.staminaDenom ?? 4));
+          fired = fireMove(mv, cost);
+          // el CD arranca ACÁ, al ejecutar (no al apretar la tecla).
+          if (fired && slot.kind === "skill") {
+            S.setCooldown(slot.id, slot.cd ?? 0);
+          }
         }
-        pendingSlot.id = null;
-        // encarar de nuevo por si tp existe
-        if (tp && root) {
-          const dx = tp.x - root.position.x, dz = tp.z - root.position.z;
-          if (Math.hypot(dx, dz) > 0.01) { facing.current = Math.atan2(dx, dz); root.rotation.y = facing.current; }
+        if (fired) {
+          pendingSlot.id = null;
+          // encarar de nuevo por si tp existe
+          if (tp && root) {
+            const dx = tp.x - root.position.x, dz = tp.z - root.position.z;
+            if (Math.hypot(dx, dz) > 0.01) { facing.current = Math.atan2(dx, dz); root.rotation.y = facing.current; }
+          }
         }
       }
     }
@@ -365,13 +376,20 @@ export function Player() {
     }
 
     // ===== golpes pendientes (daño) =====
+    // ===== golpes pendientes (daño) =====
     if (!pending.current.length || !registry.player) return;
     const now = performance.now();
     registry.player.getWorldPosition(_tmp);
     pending.current = pending.current.filter((p) => {
       if (now < p.at) return true;
       const dmg = S.baseDmg * p.move.dmg + S.combo * 1.0;
-      const landed = hitInRadius(_tmp, p.move.range, dmg, { knockback: p.move.knockback });
+      // Knockback por hit: en combos multi-hit los golpes intermedios casi no
+      // empujan (así el enemigo no se sale del rango y engancha todo el combo);
+      // solo el ÚLTIMO hit descarga el knockback pleno del move.
+      const nHits = Array.isArray(p.move.hitFrame) ? p.move.hitFrame.length : 1;
+      const isLast = p.hitIndex === nHits - 1;
+      const kb = nHits > 1 && !isLast ? p.move.knockback * 0.12 : p.move.knockback;
+      const landed = hitInRadius(_tmp, p.move.range, dmg, { knockback: kb });
       if (landed > 0) {
         S.addCombo();
         S.setHitStop(p.move.kind === "finisher" || p.move.kind === "heavy" ? 0.12 : 0.07);

@@ -21,6 +21,7 @@ import { ForestHUD } from "@/editors/forestHUD";
 import { RockScene } from "@/editors/RockScene";
 import { RockHUD } from "@/editors/rockHUD";
 import { ExportWorld } from "@/editors/ExportWorld";
+import { EDITOR_PARAMS } from "@/data/worlds/worldSource";
 
 function ReadyGate({ children }: { children: React.ReactNode }) {
   const { active, progress } = useProgress();
@@ -50,7 +51,7 @@ export function Game() {
   const pathMode = params.has("path");
   const forestMode = params.has("forest");
   const rocksMode = params.has("rocks");
-  const topView = sculptMode || edit || drawMode || pathMode || forestMode || rocksMode;
+  const topView = EDITOR_PARAMS.some((k) => params.has(k));
   const playMode = !topView;
   const exportMode = params.has("export");
 

@@ -19,12 +19,16 @@ export type Waterfall = {
   pool: [number, number];  // pozo (x, z)
   width: number;           // ancho del chorro
   cushion: number;         // altura sobre el terreno (evita que se hunda)
-  topY: number | null;   // altura manual del nacimiento (null = del terreno)
-  poolY: number | null;  // altura manual del pozo (null = del terreno)
+  topY: number | null;     // altura manual del nacimiento (null = del terreno)
+  poolY: number | null;    // altura manual del pozo (null = del terreno)
+  poolRadius: number;      // radio del disco de agua del pozo
+  splashRadius: number;    // radio de la zona de salpicadura/niebla
 };
 
 export const DEFAULT_WIDTH = 5;
 export const DEFAULT_CUSHION = 2;
+export const DEFAULT_POOL_RADIUS = 6;
+export const DEFAULT_SPLASH_RADIUS = 6;
 
 const LS_KEY = "mc-waterfalls";
 
@@ -39,6 +43,8 @@ function normalize(arr: Waterfall[]): Waterfall[] {
     width: w.width ?? DEFAULT_WIDTH,
     topY: w.topY ?? null,
     poolY: w.poolY ?? null,
+    poolRadius: w.poolRadius ?? DEFAULT_POOL_RADIUS,
+    splashRadius: w.splashRadius ?? DEFAULT_SPLASH_RADIUS,
   }));
 }
 
@@ -56,6 +62,24 @@ export function setWaterfallPoolY(id: string, y: number | null) {
   const w = FALLS!.find((f) => f.id === id);
   if (!w) return;
   w.poolY = y;
+  useWaterfalls.getState().bump();
+  saveDebounced();
+}
+
+export function setWaterfallPoolRadius(id: string, r: number) {
+  ensure();
+  const w = FALLS!.find((f) => f.id === id);
+  if (!w) return;
+  w.poolRadius = r;
+  useWaterfalls.getState().bump();
+  saveDebounced();
+}
+
+export function setWaterfallSplashRadius(id: string, r: number) {
+  ensure();
+  const w = FALLS!.find((f) => f.id === id);
+  if (!w) return;
+  w.splashRadius = r;
   useWaterfalls.getState().bump();
   saveDebounced();
 }
@@ -90,7 +114,10 @@ function saveDebounced() {
 export function addWaterfall(top: [number, number], pool: [number, number], width = DEFAULT_WIDTH): string {
   ensure();
   const id = newId();
-  FALLS!.push({ id, top, pool, width, cushion: DEFAULT_CUSHION, topY: null, poolY: null });
+  FALLS!.push({
+    id, top, pool, width, cushion: DEFAULT_CUSHION, topY: null, poolY: null,
+    poolRadius: DEFAULT_POOL_RADIUS, splashRadius: DEFAULT_SPLASH_RADIUS,
+  });
   useWaterfalls.getState().bump();
   saveDebounced();
   return id;
@@ -141,7 +168,7 @@ export function importWaterfalls(file: File) {
   r.onload = () => {
     try {
       const data = JSON.parse(String(r.result)) as Waterfall[];
-      if (Array.isArray(data)) { FALLS = data; saveDebounced(); useWaterfalls.getState().bump(); }
+      if (Array.isArray(data)) { FALLS = normalize(data); saveDebounced(); useWaterfalls.getState().bump(); }
     } catch { alert("No pude leer el waterfalls.json."); }
   };
   r.readAsText(file);

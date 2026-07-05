@@ -13,7 +13,7 @@ import { useRef, useState } from "react";
    ========================================================================= */
 
 // las 5 claves que forman el MUNDO
-const WORLD_KEYS = ["mc-coast", "mc-forest", "mc-heightmap", "mc-rocks", "mc-world", "mc-waterfalls"] as const;
+const WORLD_KEYS = ["mc-coast", "mc-forest", "mc-heightmap", "mc-rocks", "mc-world", "mc-waterfalls", "mc-swamp"] as const;
 // basura de taller: se limpia en "mundo nuevo", pero NO se hornea ni descarga
 const EXTRA_CLEAR = ["mc-forest-backup"] as const;
 

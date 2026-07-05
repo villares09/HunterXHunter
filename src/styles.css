@@ -10,13 +10,16 @@ body { font-family: "Rajdhani", system-ui, "Segoe UI", sans-serif; color: #eef6f
 /* contenedor del canvas (para el screen shake) */
 #stage { position: fixed; inset: 0; }
 #stage.shake { animation: shake 0.18s ease; }
-@keyframes shake {
-  0% { transform: translate(0, 0); }
-  25% { transform: translate(4px, -3px); }
-  50% { transform: translate(-5px, 2px); }
-  75% { transform: translate(3px, 3px); }
-  100% { transform: translate(0, 0); }
+@keyframes shake-hard {
+  0%, 100% { transform: translate(0, 0); }
+  10% { transform: translate(-8px, 4px) rotate(-1deg); }
+  25% { transform: translate(7px, -6px) rotate(1deg); }
+  40% { transform: translate(-6px, 5px); }
+  55% { transform: translate(6px, -4px) rotate(0.5deg); }
+  70% { transform: translate(-4px, 3px); }
+  85% { transform: translate(3px, -2px); }
 }
+.shake-hard { animation: shake-hard 0.5s ease-in-out; }
 
 /* capa de UI */
 #hud { position: fixed; inset: 0; z-index: 5; pointer-events: none; }

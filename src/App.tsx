@@ -4,6 +4,7 @@ import { Onboarding } from "./onboarding/Onboarding";
 import { CharacterSelect } from "./onboarding/CharacterSelect";
 import { useRPG } from "./store";
 import { AnimDebug } from "./debug/AnimDebug";
+import { inEditor } from "@/data/worlds/worldSource";
 
 export default function App() {
   const phase = useRPG((s) => s.phase);
@@ -11,11 +12,10 @@ export default function App() {
   if (location.search.includes("debug")) return <AnimDebug url="/models/gon.glb" />;
 
   const params = new URLSearchParams(location.search);
-  const inEditor = ["edit", "sculpt", "draw", "path", "forest", "rocks", "export"]
-    .some((k) => params.has(k));
+  const editing = inEditor();
 
   // En editores no se necesita personaje: saltear select/onboarding.
-  if (!inEditor) {
+  if (!editing) {
     if (phase === "select") return <CharacterSelect />;
     if (phase === "onboarding") return <Onboarding />;
   }
@@ -23,7 +23,7 @@ export default function App() {
   return (
     <>
       <div id="stage"><Game /></div>
-      {!inEditor && <HUD />}
+      {!editing && <HUD />}
       {params.has("test") && (
         <div style={{
           position: "fixed", top: 10, left: "50%", transform: "translateX(-50%)",

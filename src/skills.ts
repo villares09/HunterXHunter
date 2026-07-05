@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { useRPG } from "./store";
 import { hitInRadius } from "./damage";
 import { startSwing, attack } from "./combat";
-import { requestSlot } from "./components/Movement";
+import { requestSlot } from "@/components/movement";
 import { useTarget } from "./targeting";
 
 // ============================================================
@@ -78,11 +78,11 @@ export function useSlot(sk: Slot): boolean {
   }
 
   // SKILLS (combo): respeta cd, no se puede tirar durante otro swing.
+  // OJO: el CD (y la estamina) se aplican al EJECUTAR, en Player, cuando llega
+  // al rango del target. Acá sólo validamos y marcamos la intención (pendingSlot).
   if (attack.active) return false;
   if (!S.ready(sk.id)) return false;
-  const cost = slotCost(sk);
-  if (!S.hasStamina(cost)) return false;
-  S.setCooldown(sk.id, sk.cd ?? 0);
+  if (!S.hasStamina(slotCost(sk))) return false;
   requestSlot(sk.id);
   return true;
 }

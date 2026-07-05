@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import { PROPS } from "@/data/world";
 import { useEditor, exportWorld, importWorld, type Gizmo } from "@/data/editorStore";
-import { getWaterfalls, useWaterfalls, addWaterfall, removeWaterfall, setWaterfallWidth, setWaterfallCushion, setWaterfallTopY, setWaterfallPoolY } from "@/data/waterfallStore";
+import { getWaterfalls, useWaterfalls, addWaterfall, removeWaterfall, setWaterfallWidth, setWaterfallCushion, setWaterfallTopY, setWaterfallPoolY, setWaterfallPoolRadius, setWaterfallSplashRadius } from "@/data/waterfallStore";
 
 const BTN: React.CSSProperties = {
   padding: "6px 10px", border: "1px solid #444", borderRadius: 6,
@@ -172,6 +172,12 @@ export function EditorHUD() {
             />
             <button style={{ ...BTN, fontSize: 9, padding: "2px 5px" }} onClick={() => setWaterfallPoolY(w.id, null)}>auto</button>
           </div>
+          <label style={{ fontSize: 10, opacity: 0.7 }}>Radio pozo: {w.poolRadius.toFixed(1)}</label>
+          <input type="range" min={2} max={20} step={0.5} value={w.poolRadius}
+            onChange={(e) => setWaterfallPoolRadius(w.id, +e.target.value)} />
+          <label style={{ fontSize: 10, opacity: 0.7 }}>Radio salpicadura: {w.splashRadius.toFixed(1)}</label>
+          <input type="range" min={1} max={20} step={0.5} value={w.splashRadius}
+            onChange={(e) => setWaterfallSplashRadius(w.id, +e.target.value)} />
         </div>
       ))}
       <div style={{ fontSize: 10, opacity: 0.5, lineHeight: 1.4 }}>

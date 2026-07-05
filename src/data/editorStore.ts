@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
 import { heightAt } from "./terrainStore";
+import { isEditMode, worldLayer } from "@/data/worlds/worldSource";
 
 export type Instance = {
   key: string;
@@ -12,8 +12,11 @@ export type Instance = {
 
 export type Gizmo = "translate" | "rotate" | "scale";
 
-/* ====== seed inicial: tus landmarks actuales (los reubicás con el gizmo) ======
-   El resto (muelle, botes, juncos, rocas, bosque, foliage) sigue en World.tsx. */
+const LS_KEY = "mc-world";
+
+/* ====== seed inicial: tus landmarks legacy (NO se usa hoy) ======
+   Se deja de referencia. Las instancias de Isla Ballena viven en el world.json.
+   El editor arranca en [] sin borrador (respeta "Mundo nuevo" = lienzo en blanco). */
 const SEED: Instance[] = [
   { key: "mito", propId: "casaPersonaje", pos: [-28.3, 0, -74.8], rot: Math.PI, scale: 1.9 },
   { key: "v1", propId: "casaNpc", pos: [78, 0, -22], rot: -0.6, scale: 1.6 },
@@ -24,9 +27,55 @@ const SEED: Instance[] = [
   { key: "v6", propId: "casaNpc", pos: [104, 0, -8], rot: 0.8, scale: 1.6 },
   { key: "faro", propId: "faro", pos: [151.3, 0, 29.2], rot: 0, scale: 1.5 },
 ];
+void SEED; // referencia; no se consume
 
 let _n = 0;
 const newKey = () => `i${Date.now().toString(36)}${_n++}`;
+
+/* ====== fuente de datos (JSON horneado en juego / localStorage en editor) ======
+   Desenvuelve cualquiera de los formatos que pudo quedar guardado:
+     - array pelado           [...]                       (formato nuevo)
+     - wrapper de zustand      { state:{ instances:[...] } } (persist viejo)
+     - objeto suelto          { instances:[...] }          (por las dudas)
+   Esto es lo que evita "vaciar landmarks": tu localStorage/world.json de hoy
+   están en formato persist, y hay que leerlos bien antes de reescribir pelado. */
+function unwrapInstances(raw: unknown): Instance[] {
+  if (Array.isArray(raw)) return raw as Instance[];
+  if (raw && typeof raw === "object") {
+    const o = raw as Record<string, unknown>;
+    const st = o.state as Record<string, unknown> | undefined;
+    if (st && Array.isArray(st.instances)) return st.instances as Instance[];
+    if (Array.isArray(o.instances)) return o.instances as Instance[];
+  }
+  return [];
+}
+
+function load(): Instance[] {
+  if (isEditMode()) {
+    // TALLER: localStorage (borrador). Sin borrador → [] (idéntico a antes).
+    if (typeof window !== "undefined") {
+      const raw = window.localStorage.getItem(LS_KEY);
+      if (raw) {
+        try { return unwrapInstances(JSON.parse(raw)); } catch { /* cae a [] */ }
+      }
+    }
+    return [];
+  }
+  // JUEGO: la capa horneada del JSON (unwrap soporta el wrapper persist viejo).
+  return unwrapInstances(worldLayer(LS_KEY));
+}
+
+/* ====== persistencia (debounce, solo en editor) ======
+   En modo juego NO escribe nada. Guarda SIEMPRE pelado (array de instances),
+   consistente con las demás capas. */
+let _save: ReturnType<typeof setTimeout> | null = null;
+function save(instances: Instance[]) {
+  if (typeof window === "undefined" || !isEditMode()) return;
+  if (_save) clearTimeout(_save);
+  _save = setTimeout(() => {
+    window.localStorage.setItem(LS_KEY, JSON.stringify(instances));
+  }, 250);
+}
 
 type State = {
   instances: Instance[];
@@ -58,93 +107,105 @@ type State = {
   anchorKeysTo: (keys: string[], y: number) => void;
 };
 
-export const useEditor = create<State>()(
-  persist(
-    (set) => ({
-      instances: [],
-      selected: null,
-      gizmo: "translate",
-      snap: true,
-      showMap: false,
-      spawn: [0, 0, 0],
-      nudgeRadius: 70,
-      grabbed: null,
-      setSelected: (selected) => set({ selected }),
-      setGizmo: (gizmo) => set({ gizmo }),
-      toggleSnap: () => set((s) => ({ snap: !s.snap })),
-      toggleMap: () => set((s) => ({ showMap: !s.showMap })),
-      commit: (key, pos, rot, scale) =>
-        set((s) => ({ instances: s.instances.map((i) => (i.key === key ? { ...i, pos, rot, scale } : i)) })),
-      add: (propId) =>
-        set((s) => {
-          const key = newKey();
-          return { instances: [...s.instances, { key, propId, pos: s.spawn, rot: 0, scale: 1.5 }], selected: key };
+export const useEditor = create<State>()((set, get) => ({
+  instances: load(),
+  selected: null,
+  gizmo: "translate",
+  snap: true,
+  showMap: false,
+  spawn: [0, 0, 0],
+  nudgeRadius: 70,
+  grabbed: null,
+  setSelected: (selected) => set({ selected }),
+  setGizmo: (gizmo) => set({ gizmo }),
+  toggleSnap: () => set((s) => ({ snap: !s.snap })),
+  toggleMap: () => set((s) => ({ showMap: !s.showMap })),
+  commit: (key, pos, rot, scale) => {
+    set((s) => ({ instances: s.instances.map((i) => (i.key === key ? { ...i, pos, rot, scale } : i)) }));
+    save(get().instances);
+  },
+  add: (propId) => {
+    set((s) => {
+      const key = newKey();
+      return { instances: [...s.instances, { key, propId, pos: s.spawn, rot: 0, scale: 1.5 }], selected: key };
+    });
+    save(get().instances);
+  },
+  setSpawn: (spawn) => set({ spawn }),
+  remove: (key) => {
+    set((s) => ({
+      instances: s.instances.filter((i) => i.key !== key),
+      selected: s.selected === key ? null : s.selected,
+    }));
+    save(get().instances);
+  },
+  load: (instances) => {
+    set({ instances, selected: null, grabbed: null });
+    save(get().instances);
+  },
+  setNudgeRadius: (nudgeRadius) => set({ nudgeRadius }),
+  nudgeArea: (cx, cz, radius, deltaY) => {
+    set((s) => {
+      const r2 = radius * radius;
+      return {
+        instances: s.instances.map((i) => {
+          const dx = i.pos[0] - cx, dz = i.pos[2] - cz;
+          if (dx * dx + dz * dz > r2) return i;
+          const yEff = i.pos[1] === 0 ? heightAt(i.pos[0], i.pos[2]) : i.pos[1];
+          const pos: [number, number, number] = [i.pos[0], yEff + deltaY, i.pos[2]];
+          return { ...i, pos };
         }),
-      setSpawn: (spawn) => set({ spawn }),
-      remove: (key) =>
-        set((s) => ({
-          instances: s.instances.filter((i) => i.key !== key),
-          selected: s.selected === key ? null : s.selected,
-        })),
-      load: (instances) => set({ instances, selected: null, grabbed: null }),
-      setNudgeRadius: (nudgeRadius) => set({ nudgeRadius }),
-      nudgeArea: (cx, cz, radius, deltaY) =>
-        set((s) => {
-          const r2 = radius * radius;
-          return {
-            instances: s.instances.map((i) => {
-              const dx = i.pos[0] - cx, dz = i.pos[2] - cz;
-              if (dx * dx + dz * dz > r2) return i;
-              const yEff = i.pos[1] === 0 ? heightAt(i.pos[0], i.pos[2]) : i.pos[1];
-              const pos: [number, number, number] = [i.pos[0], yEff + deltaY, i.pos[2]];
-              return { ...i, pos };
-            }),
-          };
+      };
+    });
+    save(get().instances);
+  },
+  grab: (cx, cz, radius) => {
+    set((s) => {
+      const r2 = radius * radius;
+      const keys: string[] = [];
+      const instances = s.instances.map((i) => {
+        const dx = i.pos[0] - cx, dz = i.pos[2] - cz;
+        if (dx * dx + dz * dz > r2) return i;
+        keys.push(i.key);
+        // congelar Y: si está en auto (0) la resuelvo y la dejo explícita
+        if (i.pos[1] === 0) {
+          const y = heightAt(i.pos[0], i.pos[2]);
+          return { ...i, pos: [i.pos[0], y, i.pos[2]] as [number, number, number] };
+        }
+        return i;
+      });
+      return { instances, grabbed: keys.length ? keys : null };
+    });
+    save(get().instances);
+  },
+  release: () => set({ grabbed: null }),
+  nudgeKeys: (keys, dx, dy, dz) => {
+    set((s) => {
+      const setKeys = new Set(keys);
+      return {
+        instances: s.instances.map((i) => {
+          if (!setKeys.has(i.key)) return i;
+          const pos: [number, number, number] = [i.pos[0] + dx, i.pos[1] + dy, i.pos[2] + dz];
+          return { ...i, pos };
         }),
-      grab: (cx, cz, radius) =>
-        set((s) => {
-          const r2 = radius * radius;
-          const keys: string[] = [];
-          const instances = s.instances.map((i) => {
-            const dx = i.pos[0] - cx, dz = i.pos[2] - cz;
-            if (dx * dx + dz * dz > r2) return i;
-            keys.push(i.key);
-            // congelar Y: si está en auto (0) la resuelvo y la dejo explícita
-            if (i.pos[1] === 0) {
-              const y = heightAt(i.pos[0], i.pos[2]);
-              return { ...i, pos: [i.pos[0], y, i.pos[2]] as [number, number, number] };
-            }
-            return i;
-          });
-          return { instances, grabbed: keys.length ? keys : null };
-        }),
-      release: () => set({ grabbed: null }),
-      nudgeKeys: (keys, dx, dy, dz) =>
-        set((s) => {
-          const setKeys = new Set(keys);
-          return {
-            instances: s.instances.map((i) => {
-              if (!setKeys.has(i.key)) return i;
-              const pos: [number, number, number] = [i.pos[0] + dx, i.pos[1] + dy, i.pos[2] + dz];
-              return { ...i, pos };
-            }),
-          };
-        }),
-        anchorKeysTo: (keys, y) =>
-        set((s) => {
-          const setKeys = new Set(keys);
-          return {
-            instances: s.instances.map((i) =>
-              setKeys.has(i.key) ? { ...i, pos: [i.pos[0], y, i.pos[2]] as [number, number, number] } : i
-            ),
-          };
-        }),
-    }),
-    { name: "mc-world", version: 1 }
-  )
-);
+      };
+    });
+    save(get().instances);
+  },
+  anchorKeysTo: (keys, y) => {
+    set((s) => {
+      const setKeys = new Set(keys);
+      return {
+        instances: s.instances.map((i) =>
+          setKeys.has(i.key) ? { ...i, pos: [i.pos[0], y, i.pos[2]] as [number, number, number] } : i
+        ),
+      };
+    });
+    save(get().instances);
+  },
+}));
 
-/* ====== export / import ====== */
+/* ====== export / import (legacy, sin cambios) ====== */
 export function exportWorld(instances: Instance[]) {
   const blob = new Blob([JSON.stringify(instances, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);

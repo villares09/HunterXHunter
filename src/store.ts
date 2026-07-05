@@ -1,5 +1,7 @@
 import { create } from "zustand";
-import { hasCharacters } from "./roster";
+import { hasCharacters } from "@/roster";
+import { registry } from "@/registry";
+import { sysLog } from "@/data/chatStore";
 
 export type Floater = {
   id: number;
@@ -39,7 +41,7 @@ type State = {
 
   hp: number; maxHp: number; kills: number;
   combo: number; comboT: number;
-  hitStop: number; shakeAt: number;
+  hitStop: number; shakeAt: number; shakeKind: "normal" | "hard";
   floaters: Floater[];
 
   aura: number; maxAura: number;
@@ -55,10 +57,10 @@ type State = {
   setCharacter: (c: Character, init: CharInit) => void;
   setPhase: (p: "select" | "onboarding" | "playing") => void;
   addCombo: () => void;
-  damagePlayer: (n: number, pos: [number, number, number]) => void;
+  damagePlayer: (n: number, pos: [number, number, number], atk?: number) => void;
   addFloater: (f: Omit<Floater, "id" | "life">) => void;
   setHitStop: (s: number) => void;
-  shake: () => void;
+  shake: (kind?: "normal" | "hard") => void;
   addKill: () => void;
   spendAura: (n: number) => boolean;
   ready: (id: string) => boolean;
@@ -85,7 +87,7 @@ export const useRPG = create<State>((set, get) => ({
 
   hp: 100, maxHp: 100, kills: 0,
   combo: 0, comboT: 0,
-  hitStop: 0, shakeAt: 0,
+  hitStop: 0, shakeAt: 0, shakeKind: "normal" as "normal" | "hard",
   floaters: [],
   aura: 100, maxAura: 100,
   baseDmg: 12, passiveDmg: 1,
@@ -109,23 +111,45 @@ export const useRPG = create<State>((set, get) => ({
   setPhase: (p) => set({ phase: p }),
 
   addCombo: () => set((s) => ({ combo: s.combo + 1, comboT: 1.6 })),
-  damagePlayer: (n, pos) => {
+  damagePlayer: (n, pos, atk) => {
     const s = get();
     if (s.dead || s.invuln > 0) return;
-    const hp = Math.max(0, s.hp - n);
+
+    // --- TIRADA DE IMPACTO (enemigo -> jugador) ---
+    // chance = Ataque_enemigo / (Ataque_enemigo + Defensa_jugador). Si el enemigo
+    // manda su atk, se tira; si no (atk undefined), el golpe pega si o si (compat).
+    if (atk !== undefined) {
+      const defP = s.character?.derived?.["Defensa"] ?? 8;
+      const chance = atk / (atk + defP);
+      if (Math.random() > chance) {
+        // el enemigo te erró: MISS sobre el jugador, sin daño ni sacudida
+        const p = registry.player;
+        if (p) {
+          get().addFloater({ pos: [p.position.x, p.position.y + 2.4, p.position.z], text: "MISS", kind: "info" });
+        }
+        sysLog.miss("El enemigo", "vos");
+        return;
+      }
+    }
+
+    // --- ABSORCION del jugador: resta al dano recibido, piso de 1 ---
+    const absP = s.character?.derived?.["Absorción"] ?? 0;
+    const dmg = Math.max(1, Math.round(n - absP));
+
+    const hp = Math.max(0, s.hp - dmg);
     const dead = hp <= 0;
     set({ hp, dead, deathT: dead ? DEATH_ANIM_TIME : s.deathT });
-    get().addFloater({ pos, text: `-${n}`, kind: "hurt" });
-    get().shake();
+    get().addFloater({ pos, text: `-${dmg}`, kind: "hurt" });
+    sysLog.dmgIn("El enemigo", dmg);
+    get().shake(dead ? "hard" : "normal");
   },
   addFloater: (f) => set((s) => ({ floaters: [...s.floaters, { ...f, id: _fid++, life: 1 }] })),
   setHitStop: (s) => set({ hitStop: Math.max(get().hitStop, s) }),
-  shake: () => set({ shakeAt: performance.now() }),
+  shake: (kind = "normal") => set({ shakeAt: performance.now(), shakeKind: kind }),
   addKill: () => set((s) => ({ kills: s.kills + 1 })),
   spendAura: (n) => { if (get().aura < n) return false; set({ aura: get().aura - n }); return true; },
   ready: (id) => (get().cooldowns[id] ?? 0) <= 0,
   setCooldown: (id, cd) => {
-    console.log("[setCD]", id, "=>", cd, "| stack:", new Error().stack?.split("\n")[2]?.trim()); // TEMPORAL
     set((s) => ({ cooldowns: { ...s.cooldowns, [id]: cd } }));
   },
   buff: (mult, dur) => set({ dmgMult: mult, buffT: dur }),

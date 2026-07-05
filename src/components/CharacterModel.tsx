@@ -96,7 +96,8 @@ function CharacterModelInner({ modelId }: { modelId: string }) {
     }
 
     // --- HIT-REACTION ---
-    if (def.anim.hurt && S.hp < prevHp.current) {
+    // Poise estilo L2: si estás ejecutando un ataque, el golpe NO corta el skill.
+    if (S.hp < prevHp.current && def.anim.hurt && !attack.active) {
       const d = actions[def.anim.hurt]?.getClip().duration ?? 0.5;
       hurtUntil.current = performance.now() + d * 1000;
       cur.current = "";
@@ -116,6 +117,7 @@ function CharacterModelInner({ modelId }: { modelId: string }) {
 
       if (attack.startedAt !== lastSwingAt.current) {
         lastSwingAt.current = attack.startedAt;
+        hurtUntil.current = 0;   // un swing nuevo cancela el hit-reaction en curso
         cur.current = "";
         if (!act) console.warn("[anim] clip NO encontrado:", name, "| hay:", Object.keys(actions));
       }

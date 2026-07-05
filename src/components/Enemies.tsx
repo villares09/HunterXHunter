@@ -45,7 +45,12 @@ function Enemy({ initial }: { initial: [number, number, number] }) {
   useEffect(() => {
     const g = group.current!;
     g.position.set(...initial);
-    registerEnemy({ id, obj: g, hp: def.hp, maxHp: def.hp, alive: true, name: def.name });
+    registerEnemy({
+      id, obj: g,
+      hp: def.hp, maxHp: def.hp,
+      atk: def.atk, def: def.def, absorb: def.absorb, dmg: def.dmg,
+      alive: true, name: def.name,
+    });
     return () => unregisterEnemy(id);
   }, [id, initial, def]);
 
@@ -100,7 +105,9 @@ function Enemy({ initial }: { initial: [number, number, number] }) {
         if (atkCd.current === 0) {
           atkCd.current = 1.2;
           anim.current.attackAt = performance.now();
-          S.damagePlayer(7, [_self.x, _self.y + 1.6, _self.z]);
+          // daño del oso al jugador: usa el stat de la instancia (antes era 7 fijo).
+          // La tirada de impacto y la absorción del jugador se resuelven dentro de damagePlayer (1B-bis / 1C-bis).
+          S.damagePlayer(en.dmg, [_self.x, _self.y + 1.6, _self.z], en.atk);
         }
       }
     } else {

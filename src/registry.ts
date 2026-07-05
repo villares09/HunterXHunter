@@ -7,6 +7,10 @@ export type EnemyEntry = {
   obj: THREE.Object3D;
   hp: number;
   maxHp: number;
+  atk: number;      // ataque (tirada oso→jugador) — copiado de la EnemyDef al spawnear
+  def: number;      // defensa (tirada jugador→oso) — copiado de la EnemyDef al spawnear
+  absorb: number;   // absorción (resta al daño que recibe) — copiado de la EnemyDef al spawnear
+  dmg: number;      // daño base al jugador — copiado de la EnemyDef al spawnear
   alive: boolean;
   name?: string; // para el nameplate de targeting
 };

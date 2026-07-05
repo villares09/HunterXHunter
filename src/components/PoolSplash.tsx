@@ -3,33 +3,35 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 
 /* =========================================================================
-   POOL SPLASH — reemplaza el anillo/target feo del pozo por partículas.
-   Dos sistemas:
-     - SALPICADURA: partículas que saltan del impacto y caen (loop).
-     - SPRAY/NIEBLA: partículas tenues que flotan y suben suave alrededor.
-   Todo con <points> nativo de R3F. Los números de arriba son para tunear.
+   POOL SPLASH — partículas del pie de la cascada.
+   El impacto es una LÍNEA a lo ancho de la cinta (como una cascada real),
+   no un punto. El grupo se rota (rotY) para que su eje X local coincida
+   con el ancho de la lámina.
+     - SALPICADURA: gotas que nacen a lo largo de la línea y saltan
+       hacia afuera (adelante/atrás del impacto).
+     - SPRAY/NIEBLA: elipse difusa estirada a lo largo del ancho.
+   `width` = ancho de la cinta. `radius` = qué tan lejos salpica.
    ========================================================================= */
 
 /* ---- salpicadura (impacto) ---- */
-const SPLASH_COUNT = 300;      // cantidad de gotas
-const SPLASH_SPREAD = 20;    // radio horizontal desde el centro
-const SPLASH_UP = 4.5;        // velocidad vertical inicial
-const SPLASH_OUT = 10;       // velocidad horizontal (afuera)
-const SPLASH_GRAV = 9.0;      // gravedad
-const SPLASH_SIZE = 0.05;      // tamaño de la gota
-const SPLASH_LIFE = 1.1;      // segundos de vida
+const SPLASH_COUNT = 300;
+const SPLASH_UP = 4.5;
+const SPLASH_OUT = 7.0;       // velocidad de salida (a radio base)
+const SPLASH_GRAV = 9.0;
+const SPLASH_SIZE = 0.08;
+const SPLASH_LIFE = 1.1;
 
 /* ---- spray / niebla ---- */
 const SPRAY_COUNT = 300;
-const SPRAY_SPREAD = 6.0;     // radio de la niebla
-const SPRAY_RISE = 1.5;       // qué tan rápido sube
-const SPRAY_SIZE = 0.1;       // tamaño (grande y difuso)
-const SPRAY_HEIGHT = 2.0;     // hasta qué altura sube antes de reciclar
+const SPRAY_SPREAD = 2.0;     // profundidad de la niebla (a radio base)
+const SPRAY_RISE = 1.5;
+const SPRAY_SIZE = 0.1;
+const SPRAY_HEIGHT = 2.0;
+
+const BASE_RADIUS = 6;        // radio de referencia del slider
 
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
 
-/* textura circular suave (punto difuso) generada en canvas, para que las
-   partículas no sean cuadraditos. se crea una vez y se comparte. */
 function makeDotTexture(): THREE.Texture {
   const s = 64;
   const c = document.createElement("canvas");
@@ -41,19 +43,29 @@ function makeDotTexture(): THREE.Texture {
   g.addColorStop(1, "rgba(255,255,255,0)");
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, s, s);
-  const tex = new THREE.CanvasTexture(c);
-  return tex;
+  return new THREE.CanvasTexture(c);
 }
 
-export function PoolSplash({ x, y, z }: { x: number; y: number; z: number }) {
+type Props = {
+  x: number; y: number; z: number;
+  radius?: number;   // alcance de la salpicadura (slider)
+  width?: number;    // ancho de la cinta (línea de impacto)
+  rotY?: number;     // orientación: X local = ancho de la lámina
+};
+
+export function PoolSplash({ x, y, z, radius = 6, width = 5, rotY = 0 }: Props) {
   const dot = useMemo(() => makeDotTexture(), []);
+  // params vivos (los sliders no re-alocan arrays)
+  const pRef = useRef({ scale: radius / BASE_RADIUS, halfW: width / 2 });
+  pRef.current.scale = radius / BASE_RADIUS;
+  pRef.current.halfW = width / 2;
 
   // ---- salpicadura ----
   const splash = useMemo(() => {
     const pos = new Float32Array(SPLASH_COUNT * 3);
     const vel = new Float32Array(SPLASH_COUNT * 3);
     const life = new Float32Array(SPLASH_COUNT);
-    for (let i = 0; i < SPLASH_COUNT; i++) resetSplash(pos, vel, life, i, true);
+    for (let i = 0; i < SPLASH_COUNT; i++) resetSplash(pos, vel, life, i, true, pRef.current);
     return { pos, vel, life };
   }, []);
   const splashRef = useRef<THREE.BufferAttribute>(null);
@@ -61,20 +73,20 @@ export function PoolSplash({ x, y, z }: { x: number; y: number; z: number }) {
   // ---- spray ----
   const spray = useMemo(() => {
     const pos = new Float32Array(SPRAY_COUNT * 3);
-    for (let i = 0; i < SPRAY_COUNT; i++) resetSpray(pos, i, true);
+    for (let i = 0; i < SPRAY_COUNT; i++) resetSpray(pos, i, true, pRef.current);
     return { pos };
   }, []);
   const sprayRef = useRef<THREE.BufferAttribute>(null);
 
   useFrame((_, dtRaw) => {
-    const dt = Math.min(dtRaw, 0.05); // clamp: evita saltos si baja el fps
+    const dt = Math.min(dtRaw, 0.05);
+    const p = pRef.current;
 
-    // salpicadura: mover, aplicar gravedad, reciclar al morir
     const { pos, vel, life } = splash;
     for (let i = 0; i < SPLASH_COUNT; i++) {
       const ix = i * 3;
       life[i] -= dt;
-      if (life[i] <= 0 || pos[ix + 1] < 0) { resetSplash(pos, vel, life, i, false); continue; }
+      if (life[i] <= 0 || pos[ix + 1] < 0) { resetSplash(pos, vel, life, i, false, p); continue; }
       vel[ix + 1] -= SPLASH_GRAV * dt;
       pos[ix] += vel[ix] * dt;
       pos[ix + 1] += vel[ix + 1] * dt;
@@ -82,19 +94,17 @@ export function PoolSplash({ x, y, z }: { x: number; y: number; z: number }) {
     }
     if (splashRef.current) splashRef.current.needsUpdate = true;
 
-    // spray: subir lento y reciclar arriba
     const sp = spray.pos;
     for (let i = 0; i < SPRAY_COUNT; i++) {
       const ix = i * 3;
       sp[ix + 1] += SPRAY_RISE * dt;
-      if (sp[ix + 1] > SPRAY_HEIGHT) resetSpray(sp, i, false);
+      if (sp[ix + 1] > SPRAY_HEIGHT) resetSpray(sp, i, false, p);
     }
     if (sprayRef.current) sprayRef.current.needsUpdate = true;
   });
 
   return (
-    <group position={[x, y, z]}>
-      {/* salpicadura: gotas blancas que saltan */}
+    <group position={[x, y, z]} rotation={[0, rotY, 0]}>
       <points>
         <bufferGeometry>
           <bufferAttribute ref={splashRef} attach="attributes-position" args={[splash.pos, 3]} />
@@ -105,7 +115,6 @@ export function PoolSplash({ x, y, z }: { x: number; y: number; z: number }) {
         />
       </points>
 
-      {/* spray: niebla difusa */}
       <points>
         <bufferGeometry>
           <bufferAttribute ref={sprayRef} attach="attributes-position" args={[spray.pos, 3]} />
@@ -119,30 +128,29 @@ export function PoolSplash({ x, y, z }: { x: number; y: number; z: number }) {
   );
 }
 
-/* nace en el centro con impulso hacia arriba y afuera. `spread` = arranque
-   desperdigado en el tiempo (para que no salgan todas juntas al inicio). */
-function resetSplash(pos: Float32Array, vel: Float32Array, life: Float32Array, i: number, initial: boolean) {
+/* nace en un punto al azar de la LÍNEA de impacto (eje X local, ancho de la
+   cinta) y salta hacia arriba y afuera (eje Z, adelante/atrás). */
+function resetSplash(
+  pos: Float32Array, vel: Float32Array, life: Float32Array,
+  i: number, initial: boolean, p: { scale: number; halfW: number }
+) {
   const ix = i * 3;
-  const ang = Math.random() * Math.PI * 2;
-  const r = Math.random() * 0.4; // nacen cerca del centro
-  pos[ix] = Math.cos(ang) * r;
-  pos[ix + 1] = initial ? Math.random() * 1.5 : 0.05; // arranque escalonado
-  pos[ix + 2] = Math.sin(ang) * r;
-  const out = rand(0.3, 1) * SPLASH_OUT;
-  vel[ix] = Math.cos(ang) * out;
+  pos[ix] = rand(-1, 1) * p.halfW;          // a lo largo del ancho
+  pos[ix + 1] = initial ? Math.random() * 1.5 : 0.05;
+  pos[ix + 2] = rand(-0.2, 0.2);            // pegado a la línea
+
+  const out = rand(0.3, 1) * SPLASH_OUT * p.scale;
+  const side = Math.random() < 0.5 ? -1 : 1; // salpica a ambos lados
+  vel[ix] = rand(-0.4, 0.4) * SPLASH_OUT * p.scale;  // deriva lateral leve
   vel[ix + 1] = rand(0.6, 1) * SPLASH_UP;
-  vel[ix + 2] = Math.sin(ang) * out;
+  vel[ix + 2] = side * out;
   life[i] = rand(0.5, 1) * SPLASH_LIFE;
-  // limitar el spread horizontal máximo
-  if (Math.abs(pos[ix]) > SPLASH_SPREAD) pos[ix] = Math.sign(pos[ix]) * SPLASH_SPREAD;
-  if (Math.abs(pos[ix + 2]) > SPLASH_SPREAD) pos[ix + 2] = Math.sign(pos[ix + 2]) * SPLASH_SPREAD;
 }
 
-function resetSpray(pos: Float32Array, i: number, initial: boolean) {
+/* niebla en elipse: larga a lo ancho de la cinta, corta en profundidad */
+function resetSpray(pos: Float32Array, i: number, initial: boolean, p: { scale: number; halfW: number }) {
   const ix = i * 3;
-  const ang = Math.random() * Math.PI * 2;
-  const r = Math.random() * SPRAY_SPREAD;
-  pos[ix] = Math.cos(ang) * r;
+  pos[ix] = rand(-1, 1) * (p.halfW + SPRAY_SPREAD * p.scale * 0.5);
   pos[ix + 1] = initial ? Math.random() * SPRAY_HEIGHT : 0;
-  pos[ix + 2] = Math.sin(ang) * r;
+  pos[ix + 2] = rand(-1, 1) * SPRAY_SPREAD * p.scale;
 }

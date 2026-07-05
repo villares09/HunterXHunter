@@ -3,17 +3,22 @@ import { useRPG } from "../store";
 import { Minimap } from "./Minimap";
 import { SLOTS, slotCost, useSlot } from "../skills";
 import { DialogueRunner } from "./DialogueRunner";
+import { SystemLog } from "@/components/SystemLog";
 
 function ShakeListener() {
   const shakeAt = useRPG((s) => s.shakeAt);
+  const shakeKind = useRPG((s) => s.shakeKind);
   useEffect(() => {
     if (!shakeAt) return;
     const stage = document.getElementById("stage");
     if (!stage) return;
-    stage.classList.remove("shake"); void stage.offsetWidth; stage.classList.add("shake");
-    const t = setTimeout(() => stage.classList.remove("shake"), 200);
+    const cls = shakeKind === "hard" ? "shake-hard" : "shake";
+    stage.classList.remove("shake", "shake-hard");
+    void stage.offsetWidth;
+    stage.classList.add(cls);
+    const t = setTimeout(() => stage.classList.remove(cls), shakeKind === "hard" ? 500 : 200);
     return () => clearTimeout(t);
-  }, [shakeAt]);
+  }, [shakeAt, shakeKind]);
   return null;
 }
 
@@ -79,6 +84,7 @@ export function HUD() {
   return (
     <div id="hud">
       <ShakeListener />
+      <SystemLog />
       <DeathOverlay />
       {story && <DialogueRunner onClose={() => setStory(false)} />}
 
