@@ -48,8 +48,9 @@ export function hitInRadius(
     if (en.hp <= 0) {
       en.alive = false;
       S.addKill();
-      S.addFloater({ pos: [_e.x, _e.y + 2.1, _e.z], text: "+18 EXP", kind: "info" });
-      sysLog.kill(en.name ?? "el enemigo", 18);
+      S.addExp(en.exp);
+      S.addFloater({ pos: [_e.x, _e.y + 2.1, _e.z], text: `+${en.exp} EXP`, kind: "info" });
+      sysLog.kill(en.name ?? "el enemigo", en.exp);
     }
   });
 

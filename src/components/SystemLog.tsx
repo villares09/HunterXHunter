@@ -6,7 +6,8 @@ const KIND_COLOR: Record<ChatKind, string> = {
   dmgOut: "#eaeaea", // daño que hacés: blanco/gris claro
   dmgIn:  "#ff7b7b", // daño que recibís: rojo
   miss:   "#8fa6b8", // miss: gris azulado apagado
-  exp:    "#ffd479", // exp/kill: dorado
+  exp:    "#322914", // exp/kill: dorado
+  levelup:"#ffe14d", // subida de nivel: dorado brillante, destacado
   info:   "#8fd3ff", // avisos: celeste
   chat:   "#ffffff", // chat de jugador (futuro): blanco
 };

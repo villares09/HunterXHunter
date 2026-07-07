@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react";
-import { CATEGORIES, QUIZ_INTRO, type Category } from "../data/quiz";
-import { MODELS } from "../data/models";
-import { useRPG } from "../store";
-import { saveCharacter } from "../roster";
+import { CATEGORIES, QUIZ_INTRO, type Category } from "@/data/quiz";
+import { MODELS } from "@/data/models";
+import { useRPG } from "@/store";
+import { saveCharacter } from "@/roster";
 import "./onboarding.css";
-import { computeInit } from "../character";
+import { computeInit, derive } from "@/character";
 
 const STAT_DEFS = [
   { id: "fuerza", nm: "Fuerza" },
@@ -19,18 +19,6 @@ const ORIGIN_BONUS: Record<string, Record<string, number>> = {
   bosque: { agilidad: 1, percepcion: 1 },
   ciudad: { inteligencia: 1, carisma: 1 },
 };
-
-function derive(e: Record<string, number>) {
-  return {
-    Ataque: Math.round(e.fuerza * 2 + e.agilidad),
-    Defensa: Math.round(e.resistencia + e.agilidad),
-    "Vida Total": Math.round(20 + e.resistencia * 8),
-    "Daño": Math.round(5 + e.fuerza * 1.5),
-    "Absorción": Math.round(e.resistencia * 0.6),
-    Nen: Math.round(e.inteligencia * 2 + e.percepcion),
-    "Estamina": Math.round(20 + e.resistencia * 5 + e.agilidad * 3), // aguante físico
-  };
-}
 
 export function Onboarding() {
   const setCharacter = useRPG((s) => s.setCharacter);
@@ -62,9 +50,13 @@ export function Onboarding() {
 
   const finish = () => {
     if (!category) return;
-    const char = { name: name.trim(), sex, origin, category: category.id, modelId, stats: effective, derived: d };
-    saveCharacter(char);
-    setCharacter(char, computeInit(d, category.id, effective));
+    const char = {
+      name: name.trim(), sex, origin, category: category.id, modelId,
+      stats: effective, derived: d,
+      level: 1, exp: 0, unspent: 0,
+    };
+    const saved = saveCharacter(char);
+    setCharacter(char, computeInit(d, category.id, effective), saved.id);
   };
 
   return (

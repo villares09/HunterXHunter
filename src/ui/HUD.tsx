@@ -1,9 +1,13 @@
 import { useEffect, useState } from "react";
-import { useRPG } from "../store";
+import { useRPG, expToNext } from "@/store";
 import { Minimap } from "./Minimap";
-import { SLOTS, slotCost, useSlot } from "../skills";
+import { SLOTS, slotCost, useSlot } from "@/skills";
 import { DialogueRunner } from "./DialogueRunner";
 import { SystemLog } from "@/components/SystemLog";
+import { CharacterWindow } from "@/components/CharacterWindow";
+import { UnitFrame } from "@/components/UnitFrame";
+import { StatBar } from "@/components/StatBar";
+import { TargetFrame } from "@/components/TargetFrame";
 
 function ShakeListener() {
   const shakeAt = useRPG((s) => s.shakeAt);
@@ -70,16 +74,58 @@ function DeathOverlay() {
   );
 }
 
-export function HUD() {
+// Botón del menú que abre la ventana Character. Molde: cuando haya más ventanas,
+// esto se vuelve la barra de acciones L2 (character/inventario/skills/...).
+function MenuBar() {
+  const toggleWindow = useRPG((s) => s.toggleWindow);
+  const openWindow = useRPG((s) => s.openWindow);
+  const unspent = useRPG((s) => s.unspent);
+  return (
+    <div className="menubar">
+      <button
+        className={"menu-btn" + (openWindow === "character" ? " on" : "")}
+        style={{ pointerEvents: "auto" }}
+        title="Personaje (C)"
+        onClick={() => toggleWindow("character")}
+      >
+        <span className="mb-ico">👤</span>
+        <span className="mb-lab">Personaje</span>
+        {unspent > 0 && <span className="mb-badge">{unspent}</span>}
+      </button>
+    </div>
+  );
+}
+
+// Panel del jugador: usa el UnitFrame completo (nivel + nombre + HP/estamina/EXP).
+function PlayerPanel() {
   const hp = useRPG((s) => s.hp);
   const maxHp = useRPG((s) => s.maxHp);
-  const kills = useRPG((s) => s.kills);
-  const buffT = useRPG((s) => s.buffT);
-  const character = useRPG((s) => s.character);
-  const [story, setStory] = useState(false);
   const stamina = useRPG((s) => s.stamina);
   const maxStamina = useRPG((s) => s.maxStamina);
+  const buffT = useRPG((s) => s.buffT);
+  const character = useRPG((s) => s.character);
+  const level = useRPG((s) => s.level);
+  const exp = useRPG((s) => s.exp);
+
+  return (
+    <div className="player-panel-wrap">
+      <UnitFrame
+        name={character?.name ?? "Cazador"}
+        level={level}
+        badge={buffT > 0 ? <span className="buff">FURIA</span> : undefined}
+      >
+        <StatBar label="VIDA" value={hp} max={maxHp} variant="hp" />
+        <StatBar label="ESTAMINA" value={stamina} max={maxStamina} variant="stamina" />
+        <StatBar label="EXP" value={exp} max={expToNext(level)} variant="exp" format="percent" thin />
+      </UnitFrame>
+    </div>
+  );
+}
+
+export function HUD() {
   const combo = useRPG((s) => s.combo);
+  const openWindow = useRPG((s) => s.openWindow);
+  const [story, setStory] = useState(false);
 
   return (
     <div id="hud">
@@ -88,14 +134,14 @@ export function HUD() {
       <DeathOverlay />
       {story && <DialogueRunner onClose={() => setStory(false)} />}
 
-      <div className="panel player-panel">
-        <div className="name">{character?.name ?? "Cazador"} {buffT > 0 && <span className="buff">FURIA</span>}</div>
-        <div className="bar hp"><i style={{ width: `${(hp / maxHp) * 100}%` }} /></div>
-        <div className="lab"><span>VIDA</span><span>{Math.ceil(hp)}/{maxHp}</span></div>
-        <div className="bar stamina"><i style={{ width: `${maxStamina > 0 ? (stamina / maxStamina) * 100 : 0}%` }} /></div>
-        <div className="lab"><span>ESTAMINA</span><span>{Math.round(stamina)}/{maxStamina}</span></div>
-        <div className="lab" style={{ marginTop: 6 }}><span>BESTIAS</span><span>{kills}</span></div>
-      </div>
+      {openWindow === "character" && (
+        <div className="window-layer">
+          <CharacterWindow />
+        </div>
+      )}
+
+      <PlayerPanel />
+      <TargetFrame />
 
       <div className={"combo" + (combo > 1 ? " show" : "")}>{combo}<small>x COMBO</small></div>
 
@@ -104,10 +150,11 @@ export function HUD() {
 
       <button className="story-btn" onClick={() => setStory(true)}>📖 Historia</button>
 
+      <MenuBar />
       <SkillBar />
 
       <div className="controls">
-        <b>click</b> mover/atacar · <b>doble click</b> auto · <b>TAB</b> objetivo · <b>SHIFT</b> correr · <b>ESPACIO</b> saltar · <b>1</b> básico · <b>2·3</b> skills · <b>mouse der</b> cámara
+        <b>click</b> mover/atacar · <b>doble click</b> auto · <b>TAB</b> objetivo · <b>SHIFT</b> correr · <b>ESPACIO</b> saltar · <b>C</b> personaje · <b>1</b> básico · <b>2·3</b> skills · <b>mouse der</b> cámara
       </div>
     </div>
   );

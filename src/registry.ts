@@ -11,6 +11,8 @@ export type EnemyEntry = {
   def: number;      // defensa (tirada jugador→oso) — copiado de la EnemyDef al spawnear
   absorb: number;   // absorción (resta al daño que recibe) — copiado de la EnemyDef al spawnear
   dmg: number;      // daño base al jugador — copiado de la EnemyDef al spawnear
+  level: number;    // nivel ESTÁTICO del enemigo — copiado de la EnemyDef (Fase 3 lo compara vs el del jugador)
+  exp: number;      // EXP que suelta al morir — copiado de la EnemyDef al spawnear (Fase 2)
   alive: boolean;
   name?: string; // para el nameplate de targeting
 };

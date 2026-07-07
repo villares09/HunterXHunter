@@ -1,22 +1,24 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls, Text } from "@react-three/drei";
+import { OrbitControls } from "@react-three/drei";
 import { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import * as THREE from "three";
-import { CharacterModel, FEET_Y } from "./CharacterModel";
-import { registry, setPlayer } from "../registry";
-import { useRPG } from "../store";
-import { hitInRadius } from "../damage";
-import { useSlotByCode, SLOTS } from "../skills";
-import { startMove } from "../combat";
-import { MOVES, PUNCH_COMBO, type Move } from "../data/moves";
-import { heightAt } from "../data/terrainStore";
+import { CharacterModel, FEET_Y } from "@/components/CharacterModel";
+import { registry, setPlayer } from "@/registry";
+import { useRPG } from "@/store";
+import { hitInRadius } from "@/damage";
+import { useSlotByCode, SLOTS } from "@/skills";
+import { startMove } from "@/combat";
+import { MOVES, type Move } from "@/data/moves";
+import { heightAt } from "@/data/terrainStore";
 import {
   move, requestMove, stopMove, auto, startAutoAttack, stopAutoAttack,
   jump, startJump, GRAVITY, pendingSlot,
-} from "./movement";
-import { isWalkable, clampWalkable } from "./walkable";
-import { useTarget, targetPos, pickEnemy, cycleTarget } from "../targeting";
+} from "@/components/movement";
+import { isWalkable, clampWalkable } from "@/components/walkable";
+import { useTarget, targetPos, pickEnemy, cycleTarget } from "@/targeting";
+import { Nameplate } from "@/components/NamePlate";
+import { AuraBurst } from "@/components/AuraBurst";
 
 const _tmp = new THREE.Vector3();
 const CHAIN_WINDOW = 3.5; // ventana para encadenar el básico
@@ -77,9 +79,7 @@ export function Player() {
   const basicStep = useRef(0);
   const lastBasicAt = useRef(0);
 
-  const punchStep = useRef(0);
   const lastInputAt = useRef(0);
-  const lastToken = useRef<"P" | "K" | "">("");
 
   const { camera, gl } = useThree();
   const raycaster = useMemo(() => new THREE.Raycaster(), []);
@@ -110,19 +110,19 @@ export function Player() {
 
   // resuelve el básico encadenado: avanza la secuencia si estás dentro de la ventana
   const fireBasic = (): boolean => {
-  const now = performance.now();
-  const chained = (now - lastBasicAt.current) / 1000 <= CHAIN_WINDOW;
-  if (chained) basicStep.current = (basicStep.current + 1) % BASIC_CHAIN.length;
-  else basicStep.current = 0;
-  const m = BASIC_CHAIN[basicStep.current];
-  // costo desde el slot del básico (staminaDenom), no la constante
-  const basicSlot = SLOTS.find((s) => s.id === "basic");
-  const denom = basicSlot?.staminaDenom ?? 8;
-  const cost = Math.round(useRPG.getState().maxStamina / denom);
-  const ok = fireMove(m, cost);
-  if (ok) lastBasicAt.current = now;
-  return ok;
-};
+    const now = performance.now();
+    const chained = (now - lastBasicAt.current) / 1000 <= CHAIN_WINDOW;
+    if (chained) basicStep.current = (basicStep.current + 1) % BASIC_CHAIN.length;
+    else basicStep.current = 0;
+    const m = BASIC_CHAIN[basicStep.current];
+    // costo desde el slot del básico (staminaDenom), no la constante
+    const basicSlot = SLOTS.find((s) => s.id === "basic");
+    const denom = basicSlot?.staminaDenom ?? 8;
+    const cost = Math.round(useRPG.getState().maxStamina / denom);
+    const ok = fireMove(m, cost);
+    if (ok) lastBasicAt.current = now;
+    return ok;
+  };
 
   useEffect(() => {
     const onCanvasDown = (e: PointerEvent) => {
@@ -173,6 +173,11 @@ export function Player() {
         return;
       }
       if (e.code === "Escape") {
+        // si hay una ventana abierta, Escape la cierra y NO suelta el target
+        if (useRPG.getState().openWindow) {
+          useRPG.getState().closeWindow();
+          return;
+        }
         stopAutoAttack();
         pendingSlot.id = null;
         useTarget.getState().clear();
@@ -189,6 +194,16 @@ export function Player() {
         if (!move.running && S.stamina <= 0) return;
         move.running = !move.running;
         if (move.dest) move.locomotion = move.running ? "run" : "walk";
+        return;
+      }
+      if (e.code === "KeyC") {
+        if (e.repeat) return;
+        useRPG.getState().toggleWindow("character");
+        return;
+      }
+      if (e.code === "KeyL") {
+        if (e.repeat) return;
+        useRPG.setState({ levelUpAt: performance.now() });
         return;
       }
 
@@ -376,7 +391,6 @@ export function Player() {
     }
 
     // ===== golpes pendientes (daño) =====
-    // ===== golpes pendientes (daño) =====
     if (!pending.current.length || !registry.player) return;
     const now = performance.now();
     registry.player.getWorldPosition(_tmp);
@@ -399,10 +413,18 @@ export function Player() {
     });
   });
 
+  function PlayerNameplate() {
+  const name = useRPG((s) => s.character?.name) ?? "Cazador";
+  // el PJ va a la altura de su cabeza (modelo escalado a 1). Sin LVL.
+  return <Nameplate name={name} kind="player" y={1} />;
+}
+
   return (
     <>
       <group ref={ref} position={[SPAWN[0], spawnY, SPAWN[1]]}>
         <CharacterModel />
+        <PlayerNameplate />
+        <AuraBurst />
       </group>
       <DestMarker />
       <TargetIndicator />
@@ -442,14 +464,11 @@ function DestMarker() {
 function TargetIndicator() {
   const target = useTarget((s) => s.target);
   const ring = useRef<THREE.Group>(null);
-  const plate = useRef<THREE.Group>(null);
-  const { camera } = useThree();
 
   useFrame((state) => {
     const pos = targetPos();
     if (!target || !pos) {
       if (ring.current) ring.current.visible = false;
-      if (plate.current) plate.current.visible = false;
       if (target && !pos) { useTarget.getState().clear(); stopAutoAttack(); }
       return;
     }
@@ -459,36 +478,15 @@ function TargetIndicator() {
       const p = 1 + Math.sin(state.clock.elapsedTime * 5) * 0.12;
       ring.current.scale.setScalar(p);
     }
-    if (plate.current) {
-      plate.current.visible = true;
-      plate.current.position.set(pos.x, pos.y + 2.5, pos.z);
-      plate.current.quaternion.copy(camera.quaternion);
-    }
   });
 
   return (
-    <>
-      <group ref={ring} rotation={[-Math.PI / 2, 0, 0]} visible={false}>
-        <mesh>
-          <ringGeometry args={[0.6, 0.78, 44]} />
-          <meshBasicMaterial color="#ff5a5a" transparent opacity={0.95} depthTest={false} side={THREE.DoubleSide} />
-        </mesh>
-      </group>
-      <group ref={plate} visible={false}>
-        <Text
-          fontSize={0.4}
-          color="#ffe08a"
-          anchorX="center"
-          anchorY="middle"
-          outlineWidth={0.022}
-          outlineColor="#1a0d00"
-          material-depthTest={false}
-          renderOrder={999}
-        >
-          {target?.name ?? ""}
-        </Text>
-      </group>
-    </>
+    <group ref={ring} rotation={[-Math.PI / 2, 0, 0]} visible={false}>
+      <mesh>
+        <ringGeometry args={[0.6, 0.78, 44]} />
+        <meshBasicMaterial color="#ff5a5a" transparent opacity={0.95} depthTest={false} side={THREE.DoubleSide} />
+      </mesh>
+    </group>
   );
 }
 

@@ -10,7 +10,7 @@ export function CharacterSelect() {
   const setPhase = useRPG((s) => s.setPhase);
   const [list, setList] = useState<SavedCharacter[]>(() => loadRoster());
 
-  const play = (c: SavedCharacter) => setCharacter(c, computeInit(c.derived, c.category, c.stats));
+  const play = (c: SavedCharacter) => setCharacter(c, computeInit(c.derived, c.category, c.stats), c.id);
   const remove = (id: string) => { deleteCharacter(id); setList(loadRoster()); };
 
   return (
@@ -33,7 +33,7 @@ export function CharacterSelect() {
                   <div className="rd">
                     <span style={{ color: "var(--gold)", opacity: 0.8 }}>Nen sin revelar</span> · {model?.name ?? c.modelId} · {c.origin === "bosque" ? "Bosque" : "Ciudad"}
                   </div>
-                  <div className="rs">Vida {c.derived["Vida Total"]} · Daño {c.derived["Daño"]} · Nen {c.derived.Nen}</div>
+                  <div className="rs">Nivel {c.level ?? 1} · Vida {c.derived["Vida Total"]} · Daño {c.derived["Daño"]} · Nen {c.derived.Nen}</div>
                 </div>
                 <div className="ra">
                   <button className="btn" onClick={() => play(c)}>Jugar →</button>

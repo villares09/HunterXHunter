@@ -7,6 +7,7 @@ import { EnemyModel } from "./EnemyModel";
 import { getEnemy } from "../data/enemies";
 import { randomLandPoint } from "../data/island";
 import { heightAt } from "../data/terrainStore";
+import { Nameplate } from "@/components/NamePlate";
 
 const _p = new THREE.Vector3();
 const _self = new THREE.Vector3();
@@ -35,8 +36,6 @@ function Enemy({ initial }: { initial: [number, number, number] }) {
   const id = useMemo(() => nextId(), []);
   const def = useMemo(() => getEnemy("oso"), []);
   const group = useRef<THREE.Group>(null);
-  const fill = useRef<THREE.Mesh>(null);
-  const bar = useRef<THREE.Group>(null);
   const atkCd = useRef(0);
   const diedAt = useRef(0);
   const anim = useRef({ moving: false, attackAt: 0 });
@@ -49,6 +48,7 @@ function Enemy({ initial }: { initial: [number, number, number] }) {
       id, obj: g,
       hp: def.hp, maxHp: def.hp,
       atk: def.atk, def: def.def, absorb: def.absorb, dmg: def.dmg,
+      level: def.level, exp: def.exp,
       alive: true, name: def.name,
     });
     return () => unregisterEnemy(id);
@@ -78,7 +78,6 @@ function Enemy({ initial }: { initial: [number, number, number] }) {
           diedAt.current = 0;
         }
       }
-      if (bar.current) bar.current.visible = false;
       return;
     }
 
@@ -107,36 +106,18 @@ function Enemy({ initial }: { initial: [number, number, number] }) {
           anim.current.attackAt = performance.now();
           // daño del oso al jugador: usa el stat de la instancia (antes era 7 fijo).
           // La tirada de impacto y la absorción del jugador se resuelven dentro de damagePlayer (1B-bis / 1C-bis).
-          S.damagePlayer(en.dmg, [_self.x, _self.y + 1.6, _self.z], en.atk);
+          S.damagePlayer(en.dmg, [_self.x, _self.y + 1.6, _self.z], en.atk, en.name);
         }
       }
     } else {
       anim.current.moving = false;
-    }
-
-    if (fill.current && bar.current) {
-      const ratio = Math.max(0.001, en.hp / en.maxHp);
-      fill.current.scale.x = ratio;
-      fill.current.position.x = -(1 - ratio) * 0.5;
-      (fill.current.material as THREE.MeshBasicMaterial).color.setHSL(ratio * 0.33, 0.9, 0.5);
-      bar.current.quaternion.copy(camera.quaternion);
-      bar.current.visible = en.hp < en.maxHp;
     }
   });
 
   return (
     <group ref={group}>
       <EnemyModel id={id} anim={anim} />
-      <group ref={bar} position={[0, 2.1, 0]}>
-        <mesh>
-          <planeGeometry args={[1, 0.14]} />
-          <meshBasicMaterial color="#220000" />
-        </mesh>
-        <mesh ref={fill} position={[0, 0, 0.01]}>
-          <planeGeometry args={[0.96, 0.09]} />
-          <meshBasicMaterial color="#ff4d4d" />
-        </mesh>
-      </group>
+      <Nameplate name={def.name} level={def.level} kind="enemy" targetId={id} y={2.5} />
     </group>
   );
 }

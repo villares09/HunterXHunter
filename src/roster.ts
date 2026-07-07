@@ -1,5 +1,5 @@
-import type { Character } from "./store";
-import type { SavedCharacter } from "./character";
+import type { Character } from "@/store";
+import type { SavedCharacter } from "@/character";
 
 const KEY = "mc:characters";
 
@@ -22,6 +22,19 @@ export function saveCharacter(c: Character): SavedCharacter {
   list.push(saved);
   persist(list);
   return saved;
+}
+
+/**
+ * Reescribe campos de un personaje YA guardado, por id. Puerta única de persistencia:
+ * el progreso (level/exp, y a futuro maestrías de Nen) se guarda SIEMPRE por acá.
+ * El día del backend, solo cambia el cuerpo de estas funciones, no los call sites.
+ */
+export function updateCharacter(id: string, patch: Partial<Character>): void {
+  const list = loadRoster();
+  const i = list.findIndex((c) => c.id === id);
+  if (i === -1) return;
+  list[i] = { ...list[i], ...patch };
+  persist(list);
 }
 
 export function deleteCharacter(id: string) {

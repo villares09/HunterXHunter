@@ -16,6 +16,7 @@ export type ChatKind =
   | "dmgIn"    // daño que RECIBÍS
   | "miss"     // MISS (tuyo o del enemigo)
   | "exp"      // experiencia / kills
+  | "levelup"  // subida de nivel (dorado, destacado)
   | "info"     // avisos del sistema (sin aire, etc.)
   | "chat";    // mensaje de jugador (futuro)
 
@@ -81,6 +82,12 @@ export const sysLog = {
       channel: "system", kind: "exp",
       text: `Derrotaste a ${target}. +${exp} EXP.`,
     }),
+    /** el jugador cae derrotado por una fuente */
+  death: (source: string) =>
+    useChat.getState().push({ channel: "system", kind: "dmgIn", text: `${source} te derrotó.` }),
+  /** subida de nivel: línea destacada en dorado */
+  levelup: (text: string) =>
+    useChat.getState().push({ channel: "system", kind: "levelup", text }),
   /** aviso genérico del sistema */
   info: (text: string) =>
     useChat.getState().push({ channel: "system", kind: "info", text }),
