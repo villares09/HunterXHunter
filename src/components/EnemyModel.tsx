@@ -8,6 +8,7 @@ import { registry } from "../registry";
 import { getEnemy } from "../data/enemies";
 
 export type EnemyAnimRef = MutableRefObject<{ moving: boolean; attackAt: number }>;
+const DEATH_DROP_SPEED = 8;
 
 export function EnemyModel({
   id,
@@ -46,6 +47,7 @@ export function EnemyModel({
   const lastAttack = useRef<number>(0);
   const hitUntil = useRef<number>(0);
   const attackUntil = useRef<number>(0);
+  const baseY = useRef(0);
 
   useLayoutEffect(() => {
     model.traverse((o) => {
@@ -68,7 +70,8 @@ export function EnemyModel({
     const size = box.getSize(new THREE.Vector3());
     const s = def.targetHeight / (size.y || 1);
     g.scale.setScalar(s);
-    g.position.y = def.feetY - box.min.y * s;
+    baseY.current = def.feetY - box.min.y * s;
+    g.position.y = baseY.current;
     g.rotation.y = def.faceFlip ? Math.PI : 0;
     cur.current = "";
     
@@ -97,21 +100,26 @@ export function EnemyModel({
 
   const A = def.anim;
 
-  useFrame(() => {
+  useFrame((_, dt) => {
     if (!group.current) return;
     const en = registry.enemies.get(id);
     if (!en) return;
     const now = performance.now();
 
-    // 1) MUERTE — prioridad máxima, se clava en el último frame.
     if (!en.alive) {
       prevHp.current = en.hp;
       hitUntil.current = 0;
       attackUntil.current = 0;
-      lastAttack.current = anim.current.attackAt; // que no dispare attack al revivir
+      lastAttack.current = anim.current.attackAt;
       play(A.death, true, 0.12);
+      // el cuerpo acostado se asienta en el piso
+      const want = baseY.current - (def.deathDrop ?? 0.35);
+      group.current.position.y += (want - group.current.position.y) * Math.min(1, DEATH_DROP_SPEED * dt);
       return;
     }
+
+    // vivo (incluye el respawn): vuelve a su altura normal
+    if (group.current.position.y !== baseY.current) group.current.position.y = baseY.current;
 
     // golpe = caída de hp (registry no-reactivo, lo polleamos)
     const tookHit = en.hp < prevHp.current;

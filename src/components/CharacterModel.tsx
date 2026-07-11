@@ -9,6 +9,8 @@ import { useRPG } from "../store";
 import { move, jump } from "./movement";
 
 export const FEET_Y = -0.90;
+const DEATH_DROP = 0.55;
+const DEATH_DROP_SPEED = 8;
 const TARGET_HEIGHT = 1.35;
 const _v = new THREE.Vector3();
 
@@ -44,7 +46,7 @@ function CharacterModelInner({ modelId }: { modelId: string }) {
   const { actions } = useAnimations(clips, group);
   const cur = useRef<string>("");
   const lastSwingAt = useRef(0);
-
+  const baseY = useRef(0);
   const prevHp = useRef(0);
   const hurtUntil = useRef(0);
 
@@ -61,7 +63,8 @@ function CharacterModelInner({ modelId }: { modelId: string }) {
     const size = box.getSize(new THREE.Vector3());
     const s = TARGET_HEIGHT / (size.y || 1);
     g.scale.setScalar(s);
-    g.position.y = FEET_Y - box.min.y * s;
+    baseY.current = FEET_Y - box.min.y * s;
+    g.position.y = baseY.current;
     cur.current = "";
   }, [model, def]);
 
@@ -82,7 +85,7 @@ function CharacterModelInner({ modelId }: { modelId: string }) {
     cur.current = clip;
   };
 
-  useFrame(() => {
+  useFrame((_, dt) => {
     const g = group.current;
     if (!g) return;
 
@@ -92,8 +95,14 @@ function CharacterModelInner({ modelId }: { modelId: string }) {
     if (S.dead) {
       prevHp.current = S.hp;
       if (def.anim.down) play(def.anim.down, true, 0.15);
+      // el cuerpo acostado se asienta en el piso (ver DEATH_DROP)
+      const want = baseY.current - DEATH_DROP;
+      g.position.y += (want - g.position.y) * Math.min(1, DEATH_DROP_SPEED * dt);
       return;
     }
+
+    // vivo: si venía de estar muerto, vuelve a su altura normal
+    if (g.position.y !== baseY.current) g.position.y = baseY.current;
 
     // --- HIT-REACTION ---
     // Poise estilo L2: si estás ejecutando un ataque, el golpe NO corta el skill.

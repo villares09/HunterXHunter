@@ -27,6 +27,7 @@ export type EnemyDef = {
   targetHeight: number; // renormalización por bounding box (como CharacterModel) — controla la escala del modelo
   feetY: number;        // offset de pies al piso (acá es ~0, NO -0.65: no hay capsula de Ecctrl)
   anim: EnemyAnimMap;
+  deathDrop?: number;
 };
 
 // OJO: nombres canónicos DESPUÉS de sacar el prefijo oso_.
@@ -41,7 +42,7 @@ export const OSO: EnemyDef = {
   def: 6,       // defensa base del oso (calibrá contra el Ataque del jugador)
   absorb: 2,    // le come 2 de daño a cada golpe tuyo
   dmg: 7,       // daño base al jugador (= el 7 que antes estaba fijo en Enemies.tsx)
-  level: 1,
+  level: 10,
   exp: 18,      // EXP al morir (perilla de calibración; con curva base 100 → ~6 osos para nivel 2)
   faceFlip: false,
   targetHeight: 1.7,  // escala del oso; cada enemigo nuevo define la suya acá

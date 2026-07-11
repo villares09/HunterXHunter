@@ -201,11 +201,6 @@ export function Player() {
         useRPG.getState().toggleWindow("character");
         return;
       }
-      if (e.code === "KeyL") {
-        if (e.repeat) return;
-        useRPG.setState({ levelUpAt: performance.now() });
-        return;
-      }
 
       if (useRPG.getState().dead) return;
       if (e.code.startsWith("Digit")) {

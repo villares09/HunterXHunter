@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { registry } from "@/registry";
 import { useRPG } from "@/store";
 import { sysLog } from "@/data/chatStore";
+import { scaledExp } from "@/character";
 
 const _e = new THREE.Vector3();
 
@@ -48,9 +49,11 @@ export function hitInRadius(
     if (en.hp <= 0) {
       en.alive = false;
       S.addKill();
-      S.addExp(en.exp);
-      S.addFloater({ pos: [_e.x, _e.y + 2.1, _e.z], text: `+${en.exp} EXP`, kind: "info" });
-      sysLog.kill(en.name ?? "el enemigo", en.exp);
+      // Fase 3: la EXP se escala por diferencia de nivel (curva en character.ts).
+      const gain = scaledExp(en.exp, S.character?.level ?? 1, en.level);
+      S.addExp(gain);
+      S.addFloater({ pos: [_e.x, _e.y + 2.1, _e.z], text: `+${gain} EXP`, kind: "info" });
+      sysLog.kill(en.name ?? "el enemigo", gain);
     }
   });
 

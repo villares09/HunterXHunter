@@ -11,7 +11,15 @@ import { Nameplate } from "@/components/NamePlate";
 
 const _p = new THREE.Vector3();
 const _self = new THREE.Vector3();
-
+// --- AGRO (Fase 4a) ---
+// Radios medidos desde el OSO al jugador. El de enganche es MENOR que el de
+// desenganche a propósito (histéresis): si fueran iguales, en el borde exacto
+// el oso te agarraría y te soltaría un frame sí y otro no.
+const AGGRO_RADIUS = 12;   // te detecta a esta distancia
+const LOSE_RADIUS = 20;    // más lejos que esto, arranca el timer de olvido
+const LOSE_TIME = 10;      // segundos fuera del LOSE_RADIUS para olvidarte
+const RETURN_SPEED = 2.2;  // vuelve más lento de lo que persigue (3.0)
+const HOME_EPS = 0.5;      // ya llegó a casa
 const DEATH_HOLD = 3.0; // = duración real del clip death del oso
 
 // spawn del player, para no aparecer encima de él
@@ -39,6 +47,9 @@ function Enemy({ initial }: { initial: [number, number, number] }) {
   const atkCd = useRef(0);
   const diedAt = useRef(0);
   const anim = useRef({ moving: false, attackAt: 0 });
+  const home = useRef<[number, number, number]>(initial);
+  const aggro = useRef(false);
+  const loseAt = useRef(0); // timestamp en que se cumple el olvido; 0 = no está contando
   const { camera } = useThree();
 
   useEffect(() => {
@@ -76,6 +87,9 @@ function Enemy({ initial }: { initial: [number, number, number] }) {
           en.hp = en.maxHp;
           en.alive = true;
           diedAt.current = 0;
+          home.current = sp;
+          aggro.current = false;
+          loseAt.current = 0;
         }
       }
       return;
@@ -92,21 +106,56 @@ function Enemy({ initial }: { initial: [number, number, number] }) {
       const dist = dir.length();
       dir.normalize();
 
-      g.rotation.y = Math.atan2(dir.x, dir.z);
-
-      if (dist > 1.8) {
-        anim.current.moving = true;
-        g.position.addScaledVector(dir, 3.0 * dt);
-        // mantenerse apoyado al piso mientras camina
-        g.position.y = heightAt(g.position.x, g.position.z);
+      // --- MÁQUINA DE AGRO ---
+      if (!aggro.current) {
+        // pasivo: te engancha si entrás al radio de detección
+        if (dist <= AGGRO_RADIUS) {
+          aggro.current = true;
+          loseAt.current = 0;
+        }
       } else {
-        anim.current.moving = false;
-        if (atkCd.current === 0) {
-          atkCd.current = 1.2;
-          anim.current.attackAt = performance.now();
-          // daño del oso al jugador: usa el stat de la instancia (antes era 7 fijo).
-          // La tirada de impacto y la absorción del jugador se resuelven dentro de damagePlayer (1B-bis / 1C-bis).
-          S.damagePlayer(en.dmg, [_self.x, _self.y + 1.6, _self.z], en.atk, en.name);
+        // enganchado: si te alejás del LOSE_RADIUS, arranca (o sigue) el timer
+        if (dist > LOSE_RADIUS) {
+          if (loseAt.current === 0) loseAt.current = performance.now() + LOSE_TIME * 1000;
+          else if (performance.now() >= loseAt.current) {
+            aggro.current = false;
+            loseAt.current = 0;
+          }
+        } else {
+          loseAt.current = 0; // volviste al radio: se cancela el olvido
+        }
+      }
+
+      if (aggro.current) {
+        // --- PERSECUCIÓN (lo de antes) ---
+        g.rotation.y = Math.atan2(dir.x, dir.z);
+
+        if (dist > 1.8) {
+          anim.current.moving = true;
+          g.position.addScaledVector(dir, 3.0 * dt);
+          g.position.y = heightAt(g.position.x, g.position.z);
+        } else {
+          anim.current.moving = false;
+          if (atkCd.current === 0) {
+            atkCd.current = 1.2;
+            anim.current.attackAt = performance.now();
+            S.damagePlayer(en.dmg, [_self.x, _self.y + 1.6, _self.z], en.atk, en.name);
+          }
+        }
+      } else {
+        // --- VUELTA A CASA ---
+        const hx = home.current[0] - g.position.x;
+        const hz = home.current[2] - g.position.z;
+        const hd = Math.hypot(hx, hz);
+        if (hd > HOME_EPS) {
+          anim.current.moving = true;
+          const inv = 1 / hd;
+          g.rotation.y = Math.atan2(hx * inv, hz * inv);
+          g.position.x += hx * inv * RETURN_SPEED * dt;
+          g.position.z += hz * inv * RETURN_SPEED * dt;
+          g.position.y = heightAt(g.position.x, g.position.z);
+        } else {
+          anim.current.moving = false;
         }
       }
     } else {

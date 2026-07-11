@@ -63,6 +63,80 @@ export function expToNext(level: number): number {
 /** Puntos de atributo libres que otorga CADA subida de nivel (Fase 2c). */
 export const POINTS_PER_LEVEL = 2;
 
+// ============================================================
+// EXP ESCALADA POR DIFERENCIA DE NIVEL (Fase 3)
+// ============================================================
+// Regla: los enemigos tienen nivel FIJO (no escalan con el jugador). Lo que escala
+// es la RECOMPENSA: cuanto más por encima del enemigo estás, menos EXP te da.
+// Esto premia el progreso del jugador en vez de compensarlo (anti-patrón del
+// scaling global). Caída LINEAL con piso.
+//
+// diff = nivelJugador - nivelEnemigo
+//   diff <= 0  → 100% (enemigo igual o más fuerte: sin bonus, sin castigo)
+//   diff  > 0  → 1 - diff*STEP, con piso EXP_FLOOR
+//
+// Tabla con los valores actuales (STEP 0.12, FLOOR 0.15):
+//   diff:  0    1    2    3    4    5    6    7    8+
+//   mult: 100%  88%  76%  64%  52%  40%  28%  16%  15%
+
+/** Cuánto % de EXP se pierde por cada nivel de diferencia a favor del jugador. */
+export const EXP_DIFF_STEP = 0.12;  // perilla de calibración
+/** Multiplicador mínimo: por más diferencia que haya, el enemigo siempre da algo. */
+export const EXP_FLOOR = 0.15;      // perilla de calibración
+
+/** Multiplicador de EXP puro (0..1) según la diferencia de nivel. Función pura. */
+export function expMultiplier(playerLevel: number, enemyLevel: number): number {
+  const diff = playerLevel - enemyLevel;
+  if (diff <= 0) return 1;
+  return Math.max(EXP_FLOOR, 1 - diff * EXP_DIFF_STEP);
+}
+
+/**
+ * EXP final que otorga un enemigo, ya escalada y redondeada.
+ * Piso duro de 1: si el enemigo da EXP base > 0, nunca devuelve 0 por redondeo.
+ * Esta es la función que consume `damage.ts` al matar.
+ */
+export function scaledExp(
+  baseExp: number,
+  playerLevel: number,
+  enemyLevel: number
+): number {
+  if (baseExp <= 0) return 0;
+  const scaled = baseExp * expMultiplier(playerLevel, enemyLevel);
+  return Math.max(1, Math.round(scaled));
+}
+// ============================================================
+// COLOR POR DIFERENCIA DE NIVEL (Fase 3 — Bloque 2)
+// ============================================================
+// OJO: esta escala comunica PELIGRO, no recompensa. No coincide con la curva de
+// EXP y no tiene por qué: la EXP la ves en el floater al matar. El nameplate
+// responde a "¿me conviene pelear esto?". Un solo significado por color.
+//
+// diff = nivelJugador - nivelEnemigo
+//   diff <= -8   rojo      te mata
+//   -7 .. -3     naranja   peligroso
+//   -2 .. +2     amarillo  parejo
+//   +3 .. +7     verde     fácil
+//   diff >= +8   gris      trivial
+
+export const LEVEL_COLORS = {
+  deadly:  "#ff4d4d",
+  hard:    "#ff9a3c",
+  even:    "#ffd479",  // el dorado que ya tenía el LVL: "parejo" se ve igual que hoy
+  easy:    "#5ddd5d",
+  trivial: "#9aa4ad",
+} as const;
+
+/** Color del LVL de un enemigo según qué tan peligroso es para el jugador. Función pura. */
+export function levelColor(playerLevel: number, enemyLevel: number): string {
+  const diff = playerLevel - enemyLevel;
+  if (diff <= -8) return LEVEL_COLORS.deadly;
+  if (diff <= -3) return LEVEL_COLORS.hard;
+  if (diff <= 2) return LEVEL_COLORS.even;
+  if (diff <= 7) return LEVEL_COLORS.easy;
+  return LEVEL_COLORS.trivial;
+}
+
 /**
  * Suma `gain` de EXP a un nivel/exp actual y resuelve las subidas de nivel
  * (soporta subir varios niveles de un saque si el gain es grande).

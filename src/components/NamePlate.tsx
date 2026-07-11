@@ -4,6 +4,8 @@ import { Text } from "@react-three/drei";
 import * as THREE from "three";
 import { useTarget } from "@/targeting";
 import { auto, pendingSlot } from "@/components/movement";
+import { levelColor } from "@/character";
+import { useRPG } from "@/store";
 
 /**
  * Nameplate flotante 3D sobre una unidad (Fase 2d-A).
@@ -42,6 +44,9 @@ export function Nameplate({
   // temporales reutilizables (sin alocar por frame)
   const parentQ = useRef(new THREE.Quaternion()).current;
   const outQ = useRef(new THREE.Quaternion()).current;
+
+  // Selector angosto: devuelve un number, así solo re-renderiza cuando SUBÍS de nivel.
+  const playerLevel = useRPG((s) => s.character?.level ?? 1);
 
   useFrame(() => {
     const g = group.current;
@@ -93,7 +98,7 @@ export function Nameplate({
 
       <Text
         fontSize={0.22}
-        color="#eef6ff"
+        color={kind === "enemy" && level !== undefined ? levelColor(playerLevel, level) : "#eef6ff"}
         anchorX="center"
         anchorY="middle"
         outlineWidth={0.022}
