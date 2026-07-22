@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { useRPG } from "./store";
 import { hitInRadius } from "./damage";
 import { startSwing, attack } from "./combat";
-import { requestSlot } from "@/components/movement";
+import { requestSlot } from "@/components/Movement";
 import { useTarget } from "./targeting";
 
 // ============================================================

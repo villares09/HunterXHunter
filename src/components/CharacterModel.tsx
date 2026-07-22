@@ -6,7 +6,7 @@ import { SkeletonUtils } from "three-stdlib";
 import { attack, swingElapsed, SWING } from "../combat";
 import { MODELS, getModel } from "../data/models";
 import { useRPG } from "../store";
-import { move, jump } from "./movement";
+import { move, jump } from "./Movement";
 
 export const FEET_Y = -0.90;
 const DEATH_DROP = 0.55;

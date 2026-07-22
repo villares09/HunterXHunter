@@ -14,7 +14,7 @@ import { heightAt } from "@/data/terrainStore";
 import {
   move, requestMove, stopMove, auto, startAutoAttack, stopAutoAttack,
   jump, startJump, GRAVITY, pendingSlot,
-} from "@/components/movement";
+} from "@/components/Movement";
 import { isWalkable, clampWalkable } from "@/components/walkable";
 import { useTarget, targetPos, pickEnemy, cycleTarget } from "@/targeting";
 import { Nameplate } from "@/components/NamePlate";

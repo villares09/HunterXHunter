@@ -3,7 +3,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { Text } from "@react-three/drei";
 import * as THREE from "three";
 import { useTarget } from "@/targeting";
-import { auto, pendingSlot } from "@/components/movement";
+import { auto, pendingSlot } from "@/components/Movement";
 import { levelColor } from "@/character";
 import { useRPG } from "@/store";
 
